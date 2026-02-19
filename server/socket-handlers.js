@@ -3,7 +3,8 @@ import {
   joinRoom,
   getRoom,
   getRoomByPlayerId,
-  removePlayer,
+  handleDisconnect,
+  reconnectPlayer,
 } from './room-manager.js';
 import {
   createGameState,
@@ -36,10 +37,11 @@ export function setupSocketHandlers(io) {
         return;
       }
       socket.join(code);
-      // Notify existing players
+      // Notify existing players (only for genuinely new players, not reconnects)
       socket.to(code).emit('player_joined', {
-        name: playerName,
+        name: result.player.name,
         index: result.player.index,
+        players: result.room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected })),
       });
       callback({
         roomCode: code,
@@ -48,14 +50,58 @@ export function setupSocketHandlers(io) {
       });
     });
 
+    // Rejoin a room after reconnection (mobile tab switch, network hiccup, etc.)
+    socket.on('rejoin_room', (roomCode, playerName, callback) => {
+      const code = roomCode.toUpperCase();
+      const result = reconnectPlayer(code, socket.id, playerName);
+      if (!result) {
+        // Try joining as a new player if reconnect fails
+        const joinResult = joinRoom(code, socket.id, playerName);
+        if (joinResult.error) {
+          callback({ error: joinResult.error });
+          return;
+        }
+        socket.join(code);
+        socket.to(code).emit('player_joined', {
+          name: joinResult.player.name,
+          index: joinResult.player.index,
+          players: joinResult.room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected })),
+        });
+        callback({
+          roomCode: code,
+          players: joinResult.room.players.map(p => ({ name: p.name, index: p.index })),
+          yourIndex: joinResult.player.index,
+          gameState: joinResult.room.gameState ? getPublicGameState(joinResult.room.gameState) : null,
+        });
+        return;
+      }
+
+      socket.join(code);
+      // Notify other players of reconnection
+      socket.to(code).emit('player_reconnected', {
+        name: playerName,
+        index: result.player.index,
+        players: result.room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected })),
+      });
+      callback({
+        roomCode: code,
+        players: result.room.players.map(p => ({ name: p.name, index: p.index })),
+        yourIndex: result.player.index,
+        gameState: result.room.gameState ? getPublicGameState(result.room.gameState) : null,
+      });
+    });
+
     socket.on('start_game', (...args) => {
       const callback = args.find(a => typeof a === 'function') || (() => {});
       const room = getRoomByPlayerId(socket.id);
       if (!room) return callback({ error: 'Not in a room' });
       if (room.hostId !== socket.id) return callback({ error: 'Only host can start' });
-      if (room.players.length < MAX_PLAYERS) return callback({ error: `Need ${MAX_PLAYERS} players` });
+      // Count connected players only
+      const connectedCount = room.players.filter(p => p.connected).length;
+      if (connectedCount < MAX_PLAYERS) return callback({ error: `Need ${MAX_PLAYERS} players` });
 
       room.state = 'playing';
+      room.lastActivity = Date.now();
       room.gameState = createGameState(room.players);
       const publicState = getPublicGameState(room.gameState);
       io.to(room.code).emit('game_started', publicState);
@@ -69,6 +115,7 @@ export function setupSocketHandlers(io) {
       const result = selectTarget(room.gameState, socket.id, targetIndex);
       if (result.error) return callback({ error: result.error });
 
+      room.lastActivity = Date.now();
       io.to(room.code).emit('target_selected', {
         throwerIndex: room.gameState.currentTurnIndex,
         targetIndex,
@@ -83,6 +130,7 @@ export function setupSocketHandlers(io) {
       const result = startThrow(room.gameState, socket.id);
       if (result.error) return callback({ error: result.error });
 
+      room.lastActivity = Date.now();
       // Broadcast throw to all players so spectators can animate
       socket.to(room.code).emit('ball_thrown', {
         throwerIndex: room.gameState.currentTurnIndex,
@@ -99,6 +147,7 @@ export function setupSocketHandlers(io) {
       const result = resolveThrow(room.gameState, socket.id, data.hit, data.cupIndex);
       if (result.error) return callback({ error: result.error });
 
+      room.lastActivity = Date.now();
       // Broadcast result to all players
       io.to(room.code).emit('throw_resolved', {
         hit: result.hit,
@@ -113,9 +162,9 @@ export function setupSocketHandlers(io) {
       callback({ ok: true });
     });
 
-    socket.on('disconnect', () => {
-      console.log(`Player disconnected: ${socket.id}`);
-      const { room } = removePlayer(socket.id);
+    socket.on('disconnect', (reason) => {
+      console.log(`Player disconnected: ${socket.id} (reason: ${reason})`);
+      const { room } = handleDisconnect(socket.id);
       if (room) {
         io.to(room.code).emit('player_disconnected', {
           players: room.players.map(p => ({

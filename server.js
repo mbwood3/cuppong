@@ -12,6 +12,13 @@ const io = new Server(httpServer, {
   cors: {
     origin: '*',
   },
+  // Generous timeouts for mobile connections
+  pingTimeout: 30000,
+  pingInterval: 25000,
+  // Allow reconnection with buffered events
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 60000, // 1 minute
+  },
 });
 
 // Serve static files from Vite build output

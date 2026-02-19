@@ -1,4 +1,4 @@
-import { emit } from '../network/socket.js';
+import { emit, setCurrentRoom } from '../network/socket.js';
 import { EVENTS } from '../network/events.js';
 import { PLAYER_COLORS } from '../shared/constants.js';
 
@@ -60,6 +60,7 @@ export function showLobby(container, { onRoomJoined, prefillCode }) {
     const response = await emit(EVENTS.CREATE_ROOM, name);
     if (response.error) return showError(response.error);
 
+    setCurrentRoom(response.roomCode, name, response.yourIndex);
     onRoomJoined({
       roomCode: response.roomCode,
       players: response.players,
@@ -85,6 +86,7 @@ export function showLobby(container, { onRoomJoined, prefillCode }) {
     const response = await emit(EVENTS.JOIN_ROOM, code, name);
     if (response.error) return showError(response.error);
 
+    setCurrentRoom(response.roomCode, name, response.yourIndex);
     onRoomJoined({
       roomCode: response.roomCode,
       players: response.players,
