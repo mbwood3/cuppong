@@ -17,4 +17,5 @@ export const EVENTS = {
 
   // System
   PLAYER_DISCONNECTED: 'player_disconnected',
+  PLAYER_RECONNECTED: 'player_reconnected',
 };

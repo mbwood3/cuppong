@@ -18,10 +18,11 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
         </button>
         <ul class="player-list">
           ${currentPlayers.map((p, i) => `
-            <li>
+            <li ${p.connected === false ? 'style="opacity: 0.5;"' : ''}>
               <span class="player-dot" style="background: ${COLOR_HEX[p.index]}"></span>
               <span>${p.name}</span>
               ${p.index === 0 ? '<span class="player-label">Host</span>' : ''}
+              ${p.connected === false ? '<span style="font-size: 0.8rem; color: #888;">(disconnected)</span>' : ''}
             </li>
           `).join('')}
           ${currentPlayers.length < MAX_PLAYERS ? `
@@ -31,11 +32,11 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
             </li>
           ` : ''}
         </ul>
-        ${isHost && currentPlayers.length === MAX_PLAYERS ? `
+        ${isHost && currentPlayers.filter(p => p.connected !== false).length === MAX_PLAYERS ? `
           <button class="btn btn-primary" id="btn-start">Start Game</button>
         ` : ''}
-        ${isHost && currentPlayers.length < MAX_PLAYERS ? `
-          <p style="color: #666; font-size: 0.85rem;">Waiting for ${MAX_PLAYERS - currentPlayers.length} more player${MAX_PLAYERS - currentPlayers.length > 1 ? 's' : ''}</p>
+        ${isHost && currentPlayers.filter(p => p.connected !== false).length < MAX_PLAYERS ? `
+          <p style="color: #666; font-size: 0.85rem;">Waiting for ${MAX_PLAYERS - currentPlayers.filter(p => p.connected !== false).length} more player${MAX_PLAYERS - currentPlayers.filter(p => p.connected !== false).length > 1 ? 's' : ''}</p>
         ` : ''}
         ${!isHost ? `
           <p style="color: #666; font-size: 0.85rem;">Waiting for host to start...</p>
@@ -71,18 +72,45 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
   }
 
   function onPlayerJoined(data) {
-    currentPlayers.push(data);
+    // data now includes { name, index, players: [...] }
+    // Replace with the full players list from server
+    if (data.players) {
+      currentPlayers = data.players;
+    } else {
+      // Fallback for old format
+      currentPlayers.push(data);
+    }
+    render();
+  }
+
+  function onPlayerDisconnected(data) {
+    // data includes { players: [...] } with updated connected status
+    if (data.players) {
+      currentPlayers = data.players;
+    }
+    render();
+  }
+
+  function onPlayerReconnected(data) {
+    // data includes { players: [...] } with updated connected status
+    if (data.players) {
+      currentPlayers = data.players;
+    }
     render();
   }
 
   function onGameStarted(gameState) {
     // Clean up listeners
     off(EVENTS.PLAYER_JOINED, onPlayerJoined);
+    off(EVENTS.PLAYER_DISCONNECTED, onPlayerDisconnected);
+    off(EVENTS.PLAYER_RECONNECTED, onPlayerReconnected);
     off(EVENTS.GAME_STARTED, onGameStarted);
     onGameStart(gameState);
   }
 
   on(EVENTS.PLAYER_JOINED, onPlayerJoined);
+  on(EVENTS.PLAYER_DISCONNECTED, onPlayerDisconnected);
+  on(EVENTS.PLAYER_RECONNECTED, onPlayerReconnected);
   on(EVENTS.GAME_STARTED, onGameStarted);
 
   render();
