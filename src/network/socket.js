@@ -4,6 +4,7 @@ import { EVENTS } from './events.js';
 let socket = null;
 // Track current room for auto-rejoin on reconnect
 let currentRoom = null; // { code, playerName, yourIndex }
+let hasConnectedBefore = false; // Track if this is a reconnect vs first connect
 
 export function setCurrentRoom(code, playerName, yourIndex) {
   currentRoom = code ? { code, playerName, yourIndex } : null;
@@ -24,20 +25,22 @@ export function connect() {
     timeout: 20000,
   });
   socket.on('connect', () => {
-    console.log('Connected to server:', socket.id);
+    console.log('Connected to server:', socket.id, hasConnectedBefore ? '(reconnect)' : '(first connect)');
     window.__socketId = socket.id;
 
-    // Auto-rejoin room on reconnect (mobile tab switch, network hiccup)
-    if (currentRoom && socket.recovered === false) {
+    // Auto-rejoin room ONLY on actual reconnects (not first connect)
+    if (currentRoom && hasConnectedBefore) {
       console.log(`Reconnected - rejoining room ${currentRoom.code} as ${currentRoom.playerName}`);
       socket.emit('rejoin_room', currentRoom.code, currentRoom.playerName, (response) => {
-        if (response.error) {
+        if (response && response.error) {
           console.warn('Failed to rejoin room:', response.error);
         } else {
           console.log('Successfully rejoined room', currentRoom.code);
         }
       });
     }
+
+    hasConnectedBefore = true;
   });
   socket.on('connect_error', (err) => console.error('Socket connect error:', err.message));
   socket.on('disconnect', (reason) => {

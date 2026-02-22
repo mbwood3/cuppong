@@ -22,9 +22,10 @@ export function setupSocketHandlers(io) {
     socket.on('create_room', (playerName, callback) => {
       const room = createRoom(socket.id, playerName);
       socket.join(room.code);
+      console.log(`Room ${room.code} created by "${playerName}" (socket: ${socket.id})`);
       callback({
         roomCode: room.code,
-        players: room.players.map(p => ({ name: p.name, index: p.index })),
+        players: room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected })),
         yourIndex: 0,
       });
     });
@@ -33,19 +34,31 @@ export function setupSocketHandlers(io) {
       const code = roomCode.toUpperCase();
       const result = joinRoom(code, socket.id, playerName);
       if (result.error) {
+        console.log(`Join room ${code} failed for "${playerName}": ${result.error}`);
         callback({ error: result.error });
         return;
       }
       socket.join(code);
-      // Notify existing players (only for genuinely new players, not reconnects)
-      socket.to(code).emit('player_joined', {
-        name: result.player.name,
-        index: result.player.index,
-        players: result.room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected })),
-      });
+      const playersList = result.room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected }));
+      console.log(`"${playerName}" ${result.isReconnect ? 'reconnected to' : 'joined'} room ${code} (socket: ${socket.id}). Players: ${playersList.map(p => `${p.name}(${p.connected ? 'on' : 'off'})`).join(', ')}`);
+      if (result.isReconnect) {
+        // This was a reconnect — notify ALL clients (including sender) with player_reconnected
+        io.to(code).emit('player_reconnected', {
+          name: result.player.name,
+          index: result.player.index,
+          players: playersList,
+        });
+      } else {
+        // Genuinely new player — notify others with player_joined
+        socket.to(code).emit('player_joined', {
+          name: result.player.name,
+          index: result.player.index,
+          players: playersList,
+        });
+      }
       callback({
         roomCode: code,
-        players: result.room.players.map(p => ({ name: p.name, index: p.index })),
+        players: playersList,
         yourIndex: result.player.index,
       });
     });
@@ -62,14 +75,23 @@ export function setupSocketHandlers(io) {
           return;
         }
         socket.join(code);
-        socket.to(code).emit('player_joined', {
-          name: joinResult.player.name,
-          index: joinResult.player.index,
-          players: joinResult.room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected })),
-        });
+        const playersList = joinResult.room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected }));
+        if (joinResult.isReconnect) {
+          io.to(code).emit('player_reconnected', {
+            name: joinResult.player.name,
+            index: joinResult.player.index,
+            players: playersList,
+          });
+        } else {
+          socket.to(code).emit('player_joined', {
+            name: joinResult.player.name,
+            index: joinResult.player.index,
+            players: playersList,
+          });
+        }
         callback({
           roomCode: code,
-          players: joinResult.room.players.map(p => ({ name: p.name, index: p.index })),
+          players: playersList,
           yourIndex: joinResult.player.index,
           gameState: joinResult.room.gameState ? getPublicGameState(joinResult.room.gameState) : null,
         });
@@ -77,15 +99,16 @@ export function setupSocketHandlers(io) {
       }
 
       socket.join(code);
-      // Notify other players of reconnection
-      socket.to(code).emit('player_reconnected', {
+      const playersList = result.room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected }));
+      // Notify ALL players of reconnection (including the reconnector so their UI syncs)
+      io.to(code).emit('player_reconnected', {
         name: playerName,
         index: result.player.index,
-        players: result.room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected })),
+        players: playersList,
       });
       callback({
         roomCode: code,
-        players: result.room.players.map(p => ({ name: p.name, index: p.index })),
+        players: playersList,
         yourIndex: result.player.index,
         gameState: result.room.gameState ? getPublicGameState(result.room.gameState) : null,
       });
@@ -166,13 +189,13 @@ export function setupSocketHandlers(io) {
       console.log(`Player disconnected: ${socket.id} (reason: ${reason})`);
       const { room } = handleDisconnect(socket.id);
       if (room) {
-        io.to(room.code).emit('player_disconnected', {
-          players: room.players.map(p => ({
-            name: p.name,
-            index: p.index,
-            connected: p.connected,
-          })),
-        });
+        const playersList = room.players.map(p => ({
+          name: p.name,
+          index: p.index,
+          connected: p.connected,
+        }));
+        console.log(`Room ${room.code} players after disconnect:`, playersList.map(p => `${p.name}(${p.connected ? 'on' : 'off'})`).join(', '));
+        io.to(room.code).emit('player_disconnected', { players: playersList });
       }
     });
   });

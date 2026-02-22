@@ -38,20 +38,24 @@ export function joinRoom(code, socketId, playerName) {
   if (!room) return { error: 'Room not found' };
   if (room.state !== 'waiting') return { error: 'Game already in progress' };
 
-  // Check if this player is reconnecting (same name, disconnected)
-  const existingPlayer = room.players.find(p => p.name === playerName);
-  if (existingPlayer) {
+  // Check if this player is reconnecting (same name, currently disconnected)
+  const disconnectedPlayer = room.players.find(p => p.name === playerName && !p.connected);
+  if (disconnectedPlayer) {
     // Cancel any pending removal
-    if (pendingRemovals.has(existingPlayer.id)) {
-      clearTimeout(pendingRemovals.get(existingPlayer.id));
-      pendingRemovals.delete(existingPlayer.id);
+    if (pendingRemovals.has(disconnectedPlayer.id)) {
+      clearTimeout(pendingRemovals.get(disconnectedPlayer.id));
+      pendingRemovals.delete(disconnectedPlayer.id);
     }
     // Update socket ID and mark connected
-    existingPlayer.id = socketId;
-    existingPlayer.connected = true;
+    disconnectedPlayer.id = socketId;
+    disconnectedPlayer.connected = true;
     room.lastActivity = Date.now();
-    return { room, player: existingPlayer };
+    return { room, player: disconnectedPlayer, isReconnect: true };
   }
+
+  // If a connected player with the same name exists, reject (no duplicate names)
+  const connectedDupe = room.players.find(p => p.name === playerName && p.connected);
+  if (connectedDupe) return { error: 'A player with that name is already in the room' };
 
   if (room.players.length >= MAX_PLAYERS) return { error: 'Room is full' };
   if (room.players.some(p => p.id === socketId)) return { error: 'Already in room' };
@@ -59,7 +63,7 @@ export function joinRoom(code, socketId, playerName) {
   const player = { id: socketId, name: playerName, connected: true, index: room.players.length };
   room.players.push(player);
   room.lastActivity = Date.now();
-  return { room, player };
+  return { room, player, isReconnect: false };
 }
 
 export function getRoom(code) {
