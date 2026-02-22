@@ -102,6 +102,10 @@ html, body {
   margin-bottom: 12px;
   transition: transform 0.1s, opacity 0.1s;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-appearance: none;
+  position: relative;
+  z-index: 1;
 }
 
 .btn:active {

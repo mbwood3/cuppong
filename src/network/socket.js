@@ -47,6 +47,19 @@ export function connect() {
     console.log('Disconnected from server:', reason);
     // Don't clear currentRoom - we want to rejoin on reconnect
   });
+
+  // iOS aggressively suspends background tabs, killing the WebSocket.
+  // When the tab comes back to foreground, proactively reconnect.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && socket) {
+      console.log('[Socket] Tab became visible, checking connection...');
+      if (!socket.connected) {
+        console.log('[Socket] Disconnected — forcing reconnect');
+        socket.connect();
+      }
+    }
+  });
+
   return socket;
 }
 
@@ -57,25 +70,36 @@ export function getSocket() {
 
 // emit with any number of data args, callback is always last
 export function emit(event, ...args) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const s = getSocket();
-    if (!s.connected) {
-      // Wait for connection before emitting
-      s.once('connect', () => {
-        const cleanArgs = args.filter(a => a !== null && a !== undefined);
-        s.emit(event, ...cleanArgs, (response) => {
-          resolve(response);
-        });
-      });
-      // Timeout after 10 seconds
-      setTimeout(() => resolve({ error: 'Connection timeout' }), 10000);
-      return;
-    }
     // Filter out null/undefined to avoid sending garbage
     const cleanArgs = args.filter(a => a !== null && a !== undefined);
-    s.emit(event, ...cleanArgs, (response) => {
-      resolve(response);
-    });
+
+    const doEmit = () => {
+      console.log(`[Socket] Emitting ${event}`, cleanArgs.length ? cleanArgs : '(no args)');
+      s.emit(event, ...cleanArgs, (response) => {
+        console.log(`[Socket] ${event} response:`, response);
+        resolve(response);
+      });
+    };
+
+    if (!s.connected) {
+      console.log(`[Socket] Not connected, waiting to emit ${event}...`);
+      // Wait for connection before emitting
+      const onConnect = () => {
+        clearTimeout(timer);
+        doEmit();
+      };
+      s.once('connect', onConnect);
+      // Timeout after 10 seconds
+      const timer = setTimeout(() => {
+        s.off('connect', onConnect);
+        console.warn(`[Socket] Timeout waiting to emit ${event}`);
+        resolve({ error: 'Connection timeout' });
+      }, 10000);
+      return;
+    }
+    doEmit();
   });
 }
 

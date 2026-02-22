@@ -74,11 +74,35 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
       }
     });
 
-    // Start button
-    document.getElementById('btn-start')?.addEventListener('click', async () => {
-      const response = await emit(EVENTS.START_GAME, null);
-      if (response.error) console.error('Start game error:', response.error);
-    });
+    // Start button — use touchend for reliable mobile taps, with click fallback
+    const startBtn = document.getElementById('btn-start');
+    if (startBtn) {
+      let startTapped = false;
+      const handleStart = async (e) => {
+        e.preventDefault();
+        if (startTapped) return; // prevent double-fire
+        startTapped = true;
+        startBtn.textContent = 'Starting...';
+        startBtn.style.opacity = '0.6';
+        console.log('[WaitingRoom] Start Game tapped');
+        try {
+          const response = await emit(EVENTS.START_GAME);
+          if (response.error) {
+            console.error('Start game error:', response.error);
+            startBtn.textContent = 'Start Game';
+            startBtn.style.opacity = '1';
+            startTapped = false;
+          }
+        } catch (err) {
+          console.error('Start game exception:', err);
+          startBtn.textContent = 'Start Game';
+          startBtn.style.opacity = '1';
+          startTapped = false;
+        }
+      };
+      startBtn.addEventListener('touchend', handleStart);
+      startBtn.addEventListener('click', handleStart);
+    }
   }
 
   function onPlayerJoined(data) {
