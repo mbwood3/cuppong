@@ -27,7 +27,7 @@ export const BALL_RADIUS = 0.06;
 export const BALL_MASS = 0.0027; // ping pong ball mass in kg
 
 // Physics
-export const GRAVITY = -0.9;
+export const GRAVITY = -9.0;
 export const BALL_RESTITUTION = 0.6;
 export const BALL_FRICTION = 0.3;
 
