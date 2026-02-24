@@ -12,9 +12,9 @@ const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/
 export function initScene(container) {
   scene = new THREE.Scene();
 
-  // Warm dark background — party atmosphere
-  scene.background = new THREE.Color(0x0f0a08);
-  scene.fog = new THREE.Fog(0x0f0a08, 15, 35);
+  // Dark horror atmosphere
+  scene.background = new THREE.Color(0x0a0505);
+  scene.fog = new THREE.Fog(0x0a0505, 12, 30);
 
   camera = new THREE.PerspectiveCamera(
     CAMERA_FOV,

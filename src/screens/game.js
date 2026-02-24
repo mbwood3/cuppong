@@ -11,6 +11,7 @@ import { EVENTS } from '../network/events.js';
 import { PLAYER_COLORS, PLAYER_COLOR_NAMES, CUPS_PER_PLAYER, THROWS_PER_TURN, PLAYER_ANGLES, PLAYER_DISTANCE } from '../shared/constants.js';
 import { getCupTriangleCenter } from '../game/cups.js';
 import { getAvailablePresets } from '../game/rerack-presets.js';
+import { addGoreProps } from '../game/gore-props.js';
 
 const COLOR_HEX = PLAYER_COLORS.map(c => '#' + c.toString(16).padStart(6, '0'));
 
@@ -56,6 +57,7 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
 
   // Build the world
   createTable(scene);
+  addGoreProps(scene);
   cupMeshes = createCups(scene);
   createBall(scene);
   initPhysics();
