@@ -201,18 +201,16 @@ export function stepPhysics() {
       const horizontalDist = Math.sqrt(dx * dx + dz * dz);
 
       // Ball must be:
-      // 1. Horizontally inside the cup opening (within rim radius minus ball radius)
+      // 1. Horizontally inside the cup opening (~45% of cup diameter)
       // 2. Below the rim plane (ball center dropped past the rim top)
       // 3. Above the cup bottom (not fallen through somehow)
-      // 4. Moving downward
-      const maxHorizDist = CUP_TOP_RADIUS - BALL_RADIUS * 0.5;
+      const maxHorizDist = CUP_TOP_RADIUS * 0.6;
       const belowRim = ballPos.y < rimY - BALL_RADIUS;
       const aboveBottom = ballPos.y > cupCenterY - CUP_HEIGHT * 0.3;
 
       if (horizontalDist < maxHorizDist &&
           belowRim &&
-          aboveBottom &&
-          ballVel.y < 0) {
+          aboveBottom) {
         isSimulating = false;
         clearTimeout(simulationTimeout);
         if (hitCallback) hitCallback(pi, ci);
