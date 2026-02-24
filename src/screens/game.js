@@ -953,6 +953,11 @@ function showGameOver() {
   overlay.innerHTML = html;
 
   document.getElementById('btn-play-again')?.addEventListener('click', () => {
-    window.location.reload();
+    if (isAsyncMode) {
+      // Go back to lobby with the game code context cleared
+      window.location.href = '/';
+    } else {
+      window.location.reload();
+    }
   });
 }

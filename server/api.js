@@ -6,6 +6,16 @@ import { CUPS_PER_PLAYER, RERACKS_PER_PLAYER } from './constants.js';
 
 const router = express.Router();
 
+// Simple rate limiter: max 1 action per second per phone
+const actionTimestamps = new Map();
+function checkRateLimit(phone) {
+  const now = Date.now();
+  const last = actionTimestamps.get(phone) || 0;
+  if (now - last < 1000) return false;
+  actionTimestamps.set(phone, now);
+  return true;
+}
+
 // Generate room-style codes
 const CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function generateCode() {
@@ -88,8 +98,18 @@ router.post('/game/:code/action', async (req, res) => {
   const player = findPlayerByPhone(code, phone);
   if (!player) return res.status(403).json({ error: 'Not a player in this game' });
 
+  if (!checkRateLimit(phone)) {
+    return res.status(429).json({ error: 'Too many actions. Please wait.' });
+  }
+
   const playerId = phone; // Phone is the player ID in async mode
   const gameState = game.state;
+
+  // Verify it's this player's turn
+  const currentPlayer = gameState.players[gameState.currentTurnIndex];
+  if (currentPlayer.id !== phone) {
+    return res.status(403).json({ error: 'Not your turn' });
+  }
   let result;
 
   switch (action.type) {
