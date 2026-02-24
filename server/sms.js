@@ -29,10 +29,10 @@ export async function sendSMS(to, body) {
 
 export async function sendGameInvite(phone, playerName, gameCode, baseUrl) {
   const url = `${baseUrl}/play/${gameCode}`;
-  await sendSMS(phone, `Hey ${playerName}! You've been invited to Cup Pong. Play here: ${url}`);
+  await sendSMS(phone, `Hey ${playerName}! You've been invited to Malc Pong. Play here: ${url}`);
 }
 
 export async function sendTurnNotification(phone, playerName, gameCode, baseUrl) {
   const url = `${baseUrl}/play/${gameCode}`;
-  await sendSMS(phone, `Your turn in Cup Pong, ${playerName}! ${url}`);
+  await sendSMS(phone, `Your turn in Malc Pong, ${playerName}! ${url}`);
 }

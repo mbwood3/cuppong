@@ -23,7 +23,7 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
     const connectedCount = currentPlayers.filter(p => p.connected !== false).length;
     container.innerHTML = `
       <div class="screen">
-        <h1>Cup Pong</h1>
+        <h1>Malc Pong</h1>
         <p style="color: #888; margin-bottom: 8px;">Share this code with friends:</p>
         <div class="room-code">${roomCode}</div>
         <button class="btn btn-secondary" id="btn-share" style="margin-bottom: 24px;">
@@ -63,7 +63,7 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
       const url = `${window.location.origin}/join/${roomCode}`;
       try {
         if (navigator.share) {
-          await navigator.share({ title: 'Cup Pong', text: `Join my Cup Pong game!`, url });
+          await navigator.share({ title: 'Malc Pong', text: `Join my Malc Pong game!`, url });
         } else {
           await navigator.clipboard.writeText(url);
           const btn = document.getElementById('btn-share');

@@ -1,7 +1,7 @@
 export function showCreateGame(container, { hostName, onGameCreated, onBack }) {
   container.innerHTML = `
     <div class="screen">
-      <h1>Cup Pong</h1>
+      <h1>Malc Pong</h1>
       <h2>Create Async Game</h2>
       <div id="create-game-form">
         <div class="player-form-row">
@@ -84,7 +84,7 @@ export function showCreateGame(container, { hostName, onGameCreated, onBack }) {
       const shareUrl = `${window.location.origin}/play/${data.gameCode}`;
       container.innerHTML = `
         <div class="screen">
-          <h1>Cup Pong</h1>
+          <h1>Malc Pong</h1>
           <h2>Game Created!</h2>
           <div style="font-size: 2rem; font-weight: 800; letter-spacing: 0.3em; color: #e74c7a; margin: 16px 0;">
             ${data.gameCode}

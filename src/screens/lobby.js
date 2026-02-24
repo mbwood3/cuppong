@@ -7,7 +7,7 @@ export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, pr
 
   container.innerHTML = `
     <div class="screen">
-      <h1>Cup Pong</h1>
+      <h1>Malc Pong</h1>
       <h2>3-Player Cutthroat</h2>
       <div id="lobby-main">
         <input class="input" id="player-name" placeholder="Your name" maxlength="12" autocomplete="off" />

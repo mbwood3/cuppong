@@ -88,7 +88,7 @@ if (new URLSearchParams(window.location.search).has('test')) {
 function showPhoneVerify(container, gameCode) {
   container.innerHTML = `
     <div class="screen">
-      <h1>Cup Pong</h1>
+      <h1>Malc Pong</h1>
       <h2>Join Game ${gameCode}</h2>
       <input class="input" id="verify-phone" placeholder="Your phone number" type="tel" autocomplete="off" />
       <button class="btn btn-primary" id="btn-verify">Join Game</button>
