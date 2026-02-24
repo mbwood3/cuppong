@@ -14,8 +14,12 @@ export const EVENTS = {
   BALL_THROWN: 'ball_thrown',
   THROW_RESULT: 'throw_result',
   THROW_RESOLVED: 'throw_resolved',
+  RERACK_CUPS: 'rerack_cups',
+  SKIP_RERACK: 'skip_rerack',
+  CUPS_RERACKED: 'cups_reracked',
 
   // System
   PLAYER_DISCONNECTED: 'player_disconnected',
   PLAYER_RECONNECTED: 'player_reconnected',
+  GET_ROOM_STATE: 'get_room_state',
 };

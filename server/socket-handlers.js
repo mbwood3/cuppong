@@ -11,6 +11,8 @@ import {
   selectTarget,
   startThrow,
   resolveThrow,
+  rerackCups,
+  skipRerack,
   getPublicGameState,
 } from './game-logic.js';
 import { MAX_PLAYERS } from './constants.js';
@@ -114,6 +116,15 @@ export function setupSocketHandlers(io) {
       });
     });
 
+    // Let clients request current room state (catches missed events)
+    socket.on('get_room_state', (callback) => {
+      const room = getRoomByPlayerId(socket.id);
+      if (!room) return callback({ error: 'Not in a room' });
+      callback({
+        players: room.players.map(p => ({ name: p.name, index: p.index, connected: p.connected })),
+      });
+    });
+
     socket.on('start_game', (...args) => {
       const callback = args.find(a => typeof a === 'function') || (() => {});
       const room = getRoomByPlayerId(socket.id);
@@ -142,6 +153,38 @@ export function setupSocketHandlers(io) {
       io.to(room.code).emit('target_selected', {
         throwerIndex: room.gameState.currentTurnIndex,
         targetIndex,
+      });
+      callback({ ok: true });
+    });
+
+    socket.on('rerack_cups', (data, callback) => {
+      const room = getRoomByPlayerId(socket.id);
+      if (!room || !room.gameState) return callback({ error: 'No active game' });
+
+      const result = rerackCups(room.gameState, socket.id, data.targetIndex, data.positions);
+      if (result.error) return callback({ error: result.error });
+
+      room.lastActivity = Date.now();
+      io.to(room.code).emit('cups_reracked', {
+        targetIndex: data.targetIndex,
+        positions: data.positions,
+        gameState: getPublicGameState(room.gameState),
+      });
+      callback({ ok: true });
+    });
+
+    socket.on('skip_rerack', (callback) => {
+      const room = getRoomByPlayerId(socket.id);
+      if (!room || !room.gameState) return callback({ error: 'No active game' });
+
+      const result = skipRerack(room.gameState, socket.id);
+      if (result.error) return callback({ error: result.error });
+
+      room.lastActivity = Date.now();
+      io.to(room.code).emit('cups_reracked', {
+        targetIndex: room.gameState.currentTarget,
+        positions: null, // null = no change
+        gameState: getPublicGameState(room.gameState),
       });
       callback({ ok: true });
     });
