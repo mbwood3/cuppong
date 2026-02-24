@@ -627,7 +627,7 @@ function showRerackUI(targetIndex) {
   const rerackDiv = document.createElement('div');
   rerackDiv.className = 'rerack-ui';
   rerackDiv.style.cssText = `
-    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
     display: flex; flex-direction: column; align-items: center; gap: 12px;
     z-index: 20; pointer-events: auto;
   `;
@@ -705,9 +705,9 @@ function showRerackUI(targetIndex) {
   actionRow.appendChild(confirmBtn);
 
   const skipBtn = document.createElement('button');
-  skipBtn.textContent = 'Skip';
-  skipBtn.className = 'btn';
-  skipBtn.style.cssText = 'padding: 10px 24px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: #fff;';
+  skipBtn.textContent = 'Skip Rerack';
+  skipBtn.className = 'btn btn-secondary';
+  skipBtn.style.cssText = 'padding: 12px 32px; font-size: 1rem; font-weight: 600;';
   skipBtn.addEventListener('click', async () => {
     rerackDiv.remove();
 
