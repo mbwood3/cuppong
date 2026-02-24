@@ -3,7 +3,7 @@ import { showLobby } from './screens/lobby.js';
 import { showWaitingRoom } from './screens/waiting-room.js';
 import { showCreateGame } from './screens/create-game.js';
 import { startGame } from './screens/game.js';
-import { CUPS_PER_PLAYER } from './shared/constants.js';
+import { CUPS_PER_PLAYER, RERACKS_PER_PLAYER } from './shared/constants.js';
 
 const screenContainer = document.getElementById('screen-container');
 const canvasContainer = document.getElementById('game-canvas-container');
@@ -16,9 +16,9 @@ if (new URLSearchParams(window.location.search).has('test')) {
   screenContainer.classList.add('hidden');
   const fakeGameState = {
     players: [
-      { id: 'test-player-0', name: 'You', index: 0, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false },
-      { id: 'test-player-1', name: 'Bot 1', index: 1, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false },
-      { id: 'test-player-2', name: 'Bot 2', index: 2, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false },
+      { id: 'test-player-0', name: 'You', index: 0, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false, reracksRemaining: RERACKS_PER_PLAYER, cupPositions: null },
+      { id: 'test-player-1', name: 'Bot 1', index: 1, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false, reracksRemaining: RERACKS_PER_PLAYER, cupPositions: null },
+      { id: 'test-player-2', name: 'Bot 2', index: 2, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false, reracksRemaining: RERACKS_PER_PLAYER, cupPositions: null },
     ],
     currentTurnIndex: 0,
     currentTarget: null,

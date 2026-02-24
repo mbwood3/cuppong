@@ -1,6 +1,6 @@
 import { emit, setCurrentRoom } from '../network/socket.js';
 import { EVENTS } from '../network/events.js';
-import { PLAYER_COLORS, CUPS_PER_PLAYER } from '../shared/constants.js';
+import { PLAYER_COLORS, CUPS_PER_PLAYER, RERACKS_PER_PLAYER } from '../shared/constants.js';
 
 export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, prefillCode }) {
   const isJoining = !!prefillCode;
@@ -75,9 +75,9 @@ export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, pr
   document.getElementById('btn-freeplay').addEventListener('click', () => {
     const fakeGameState = {
       players: [
-        { id: 'freeplay-0', name: 'Player 1', index: 0, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false },
-        { id: 'freeplay-1', name: 'Player 2', index: 1, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false },
-        { id: 'freeplay-2', name: 'Player 3', index: 2, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false },
+        { id: 'freeplay-0', name: 'Player 1', index: 0, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false, reracksRemaining: RERACKS_PER_PLAYER, cupPositions: null },
+        { id: 'freeplay-1', name: 'Player 2', index: 1, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false, reracksRemaining: RERACKS_PER_PLAYER, cupPositions: null },
+        { id: 'freeplay-2', name: 'Player 3', index: 2, cups: new Array(CUPS_PER_PLAYER).fill(true), eliminated: false, reracksRemaining: RERACKS_PER_PLAYER, cupPositions: null },
       ],
       currentTurnIndex: 0,
       currentTarget: null,

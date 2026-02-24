@@ -7,6 +7,8 @@ const COLOR_HEX = PLAYER_COLORS.map(c => '#' + c.toString(16).padStart(6, '0'));
 export function showWaitingRoom(container, { roomCode, players, yourIndex, isHost, onGameStart }) {
   let currentPlayers = [...players];
   let cleaned = false;
+  let startInProgress = false; // Track across re-renders
+  let startError = null; // Show errors to user
 
   // Helper: update players from server data (always use server as source of truth)
   function syncPlayers(serverPlayers) {
@@ -44,7 +46,7 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
           ` : ''}
         </ul>
         ${isHost && connectedCount === MAX_PLAYERS ? `
-          <button class="btn btn-primary" id="btn-start">Start Game</button>
+          <button class="btn btn-primary" id="btn-start" ${startInProgress ? 'style="opacity: 0.6;"' : ''}>${startInProgress ? 'Starting...' : 'Start Game'}</button>
         ` : ''}
         ${isHost && connectedCount < MAX_PLAYERS ? `
           <p style="color: #666; font-size: 0.85rem;">Waiting for ${MAX_PLAYERS - connectedCount} more player${MAX_PLAYERS - connectedCount > 1 ? 's' : ''}</p>
@@ -52,6 +54,7 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
         ${!isHost ? `
           <p style="color: #666; font-size: 0.85rem;">Waiting for host to start...</p>
         ` : ''}
+        ${startError ? `<p style="color: #e74c3c; font-size: 0.85rem; margin-top: 8px;">${startError}</p>` : ''}
       </div>
     `;
 
@@ -77,27 +80,26 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
     // Start button — use touchend for reliable mobile taps, with click fallback
     const startBtn = document.getElementById('btn-start');
     if (startBtn) {
-      let startTapped = false;
       const handleStart = async (e) => {
         e.preventDefault();
-        if (startTapped) return; // prevent double-fire
-        startTapped = true;
-        startBtn.textContent = 'Starting...';
-        startBtn.style.opacity = '0.6';
+        if (startInProgress) return; // prevent double-fire (survives re-renders)
+        startInProgress = true;
+        startError = null;
+        render(); // Update button visual state
         console.log('[WaitingRoom] Start Game tapped');
         try {
           const response = await emit(EVENTS.START_GAME);
           if (response.error) {
             console.error('Start game error:', response.error);
-            startBtn.textContent = 'Start Game';
-            startBtn.style.opacity = '1';
-            startTapped = false;
+            startInProgress = false;
+            startError = response.error;
+            render();
           }
         } catch (err) {
           console.error('Start game exception:', err);
-          startBtn.textContent = 'Start Game';
-          startBtn.style.opacity = '1';
-          startTapped = false;
+          startInProgress = false;
+          startError = 'Connection error — try again';
+          render();
         }
       };
       startBtn.addEventListener('touchend', handleStart);
@@ -140,4 +142,11 @@ export function showWaitingRoom(container, { roomCode, players, yourIndex, isHos
   on(EVENTS.GAME_STARTED, onGameStarted);
 
   render();
+
+  // Fetch latest room state to catch any events missed during screen transition
+  emit(EVENTS.GET_ROOM_STATE).then(response => {
+    if (response && !response.error && response.players) {
+      syncPlayers(response.players);
+    }
+  });
 }

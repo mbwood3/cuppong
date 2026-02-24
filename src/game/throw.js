@@ -11,6 +11,7 @@ import {
   PLAYER_DISTANCE,
 } from '../shared/constants.js';
 import { getCamera } from './scene.js';
+import { getCupTriangleCenter } from './cups.js';
 
 let canvas = null;
 let onThrowCallback = null;
@@ -18,6 +19,13 @@ let swipeStart = null;
 let swipeEnabled = false;
 let previewLine = null;
 let previewScene = null;
+let activePointerId = null; // Track single pointer for multi-touch rejection
+
+// Use shared debug overlay from game.js
+function debugLog(msg) {
+  console.log(msg);
+  if (window._dbg) window._dbg(msg);
+}
 
 export function initThrowControls(canvasEl, scene) {
   canvas = canvasEl;
@@ -36,19 +44,30 @@ export function initThrowControls(canvasEl, scene) {
   previewLine.visible = false;
   scene.add(previewLine);
 
-  canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
-  canvas.addEventListener('pointermove', onPointerMove, { passive: false });
-  canvas.addEventListener('pointerup', onPointerUp, { passive: false });
-  canvas.addEventListener('pointercancel', onPointerCancel, { passive: false });
+  // Listen on DOCUMENT level — on iOS Safari, pointer events don't pass through
+  // z-index layers via pointer-events:none. The ui-overlay sits above the canvas,
+  // so canvas never receives pointer events. Document-level listeners always work.
+  document.addEventListener('pointerdown', onPointerDown, { passive: false });
+  document.addEventListener('pointermove', onPointerMove, { passive: false });
+  document.addEventListener('pointerup', onPointerUp, { passive: false });
+  document.addEventListener('pointercancel', onPointerCancel, { passive: false });
 
-  // Prevent default touch behaviors
-  canvas.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
-  canvas.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+  // Prevent default touch behaviors (scroll, zoom, iOS rubber-band)
+  // on the canvas container's parent to prevent page-level gestures during game
+  const gameContainer = canvas.parentElement;
+  if (gameContainer) {
+    gameContainer.addEventListener('touchstart', e => { if (swipeEnabled) e.preventDefault(); }, { passive: false });
+    gameContainer.addEventListener('touchmove', e => { if (swipeEnabled) e.preventDefault(); }, { passive: false });
+  }
+
+  // Lock first pointer only — reject multi-touch gestures
+  activePointerId = null;
 }
 
 export function enableThrow(callback) {
   onThrowCallback = callback;
   swipeEnabled = true;
+  debugLog('[Throw] enableThrow swipeEnabled=' + swipeEnabled + ' canvas=' + !!canvas);
 }
 
 export function disableThrow() {
@@ -60,7 +79,12 @@ export function disableThrow() {
 
 function onPointerDown(e) {
   if (!swipeEnabled) return;
+  debugLog('[Throw] DOWN tgt=' + e.target.tagName + ' pid=' + e.pointerId);
   e.preventDefault();
+
+  // Only track one finger at a time — reject multi-touch
+  if (activePointerId !== null) return;
+  activePointerId = e.pointerId;
 
   swipeStart = {
     x: e.clientX,
@@ -71,6 +95,7 @@ function onPointerDown(e) {
 
 function onPointerMove(e) {
   if (!swipeEnabled || !swipeStart) return;
+  if (e.pointerId !== activePointerId) return; // Ignore other fingers
   e.preventDefault();
 
   // Show trajectory preview
@@ -93,6 +118,8 @@ function onPointerMove(e) {
 
 function onPointerUp(e) {
   if (!swipeEnabled || !swipeStart) return;
+  if (e.pointerId !== activePointerId) return;
+  activePointerId = null;
   e.preventDefault();
 
   const end = {
@@ -105,6 +132,8 @@ function onPointerUp(e) {
   const dy = end.y - swipeStart.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
 
+  debugLog('[Throw] dist=' + dist.toFixed(1) + ' min=' + MIN_SWIPE_DISTANCE);
+
   if (previewLine) previewLine.visible = false;
 
   if (dist < MIN_SWIPE_DISTANCE) {
@@ -114,13 +143,16 @@ function onPointerUp(e) {
 
   const velocity = computeVelocity(swipeStart, end);
   swipeStart = null;
+  debugLog('[Throw] vel=' + JSON.stringify(velocity) + ' cb=' + !!onThrowCallback);
 
   if (velocity && onThrowCallback) {
     onThrowCallback(velocity);
   }
 }
 
-function onPointerCancel() {
+function onPointerCancel(e) {
+  if (e.pointerId !== activePointerId) return;
+  activePointerId = null;
   swipeStart = null;
   if (previewLine) previewLine.visible = false;
 }
@@ -151,33 +183,38 @@ function computeVelocity(start, end) {
   return { x: velocityX, y: velocityY, z: velocityZ };
 }
 
-// Get a throwing start position based on current player facing target
+// Get a throwing start position on the TARGET's radial axis
+// (same axis the camera is on, so ball appears centered on screen)
 export function getThrowStartPosition(throwerIndex, targetIndex) {
-  const throwerAngle = PLAYER_ANGLES[throwerIndex];
+  const targetCenter = getCupTriangleCenter(targetIndex);
   const targetAngle = PLAYER_ANGLES[targetIndex];
 
-  // Start position: near the thrower, slightly toward center
-  const startX = Math.cos(throwerAngle) * (PLAYER_DISTANCE - 0.3);
-  const startZ = -Math.sin(throwerAngle) * (PLAYER_DISTANCE - 0.3);
+  // The target triangle's radial axis: from target player through center
+  // (tip of triangle points this direction)
+  const towardCenterX = -Math.cos(targetAngle);
+  const towardCenterZ = Math.sin(targetAngle);
+
+  // Camera is at targetCenter + towardCenter * camDist (see camera-controller.js)
+  // Ball should start between camera and the target cups, on this same axis
+  // Place it a bit in front of the camera (toward the cups)
+  const startDist = 3.5; // distance from target center along the axis (toward camera)
+  const startX = targetCenter.x + towardCenterX * startDist;
+  const startZ = targetCenter.z + towardCenterZ * startDist;
 
   return { x: startX, y: 0.5, z: startZ };
 }
 
-// Get the direction from thrower to target for camera positioning
+// Get the throw direction: along target's radial axis toward their cups
 export function getThrowDirection(throwerIndex, targetIndex) {
-  const throwerAngle = PLAYER_ANGLES[throwerIndex];
   const targetAngle = PLAYER_ANGLES[targetIndex];
 
-  const fromX = Math.cos(throwerAngle) * PLAYER_DISTANCE;
-  const fromZ = -Math.sin(throwerAngle) * PLAYER_DISTANCE;
-  const toX = Math.cos(targetAngle) * PLAYER_DISTANCE;
-  const toZ = -Math.sin(targetAngle) * PLAYER_DISTANCE;
+  // Camera is on the target's radial axis, looking toward cups
+  // "Forward" = opposite of towardCenter (i.e., toward target player's cups)
+  const towardCenterX = -Math.cos(targetAngle);
+  const towardCenterZ = Math.sin(targetAngle);
 
-  const dx = toX - fromX;
-  const dz = toZ - fromZ;
-  const dist = Math.sqrt(dx * dx + dz * dz);
-
-  return { x: dx / dist, z: dz / dist };
+  // Forward from camera = opposite of towardCenter
+  return { x: -towardCenterX, z: -towardCenterZ };
 }
 
 function computeTrajectoryPreview(velocity) {
@@ -209,12 +246,10 @@ function computeTrajectoryPreview(velocity) {
 }
 
 export function cleanup() {
-  if (canvas) {
-    canvas.removeEventListener('pointerdown', onPointerDown);
-    canvas.removeEventListener('pointermove', onPointerMove);
-    canvas.removeEventListener('pointerup', onPointerUp);
-    canvas.removeEventListener('pointercancel', onPointerCancel);
-  }
+  document.removeEventListener('pointerdown', onPointerDown);
+  document.removeEventListener('pointermove', onPointerMove);
+  document.removeEventListener('pointerup', onPointerUp);
+  document.removeEventListener('pointercancel', onPointerCancel);
   canvas = null;
   onThrowCallback = null;
   swipeStart = null;

@@ -47,8 +47,13 @@ export function joinRoom(code, socketId, playerName) {
       pendingRemovals.delete(disconnectedPlayer.id);
     }
     // Update socket ID and mark connected
+    const oldId = disconnectedPlayer.id;
     disconnectedPlayer.id = socketId;
     disconnectedPlayer.connected = true;
+    // Update hostId if this player is the host
+    if (room.hostId === oldId) {
+      room.hostId = socketId;
+    }
     room.lastActivity = Date.now();
     return { room, player: disconnectedPlayer, isReconnect: true };
   }
@@ -125,12 +130,17 @@ export function reconnectPlayer(code, socketId, playerName) {
   const player = room.players.find(p => p.name === playerName && !p.connected);
   if (player) {
     // Cancel pending removal
-    if (pendingRemovals.has(player.id)) {
-      clearTimeout(pendingRemovals.get(player.id));
-      pendingRemovals.delete(player.id);
+    const oldId = player.id;
+    if (pendingRemovals.has(oldId)) {
+      clearTimeout(pendingRemovals.get(oldId));
+      pendingRemovals.delete(oldId);
     }
     player.id = socketId;
     player.connected = true;
+    // Update hostId if this player is the host
+    if (room.hostId === oldId) {
+      room.hostId = socketId;
+    }
     room.lastActivity = Date.now();
     return { room, player };
   }
@@ -149,6 +159,10 @@ export function updatePlayerSocketId(oldSocketId, newSocketId) {
       }
       player.id = newSocketId;
       player.connected = true;
+      // Update hostId if this player is the host
+      if (room.hostId === oldSocketId) {
+        room.hostId = newSocketId;
+      }
       return { room, player };
     }
   }
