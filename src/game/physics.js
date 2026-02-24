@@ -6,6 +6,7 @@ import {
   BALL_RESTITUTION,
   BALL_FRICTION,
   CUP_TOP_RADIUS,
+  CUP_BOTTOM_RADIUS,
   CUP_HEIGHT,
   TABLE_RADIUS,
   CUPS_PER_PLAYER,
@@ -15,6 +16,7 @@ import { getCupWorldPosition } from './cups.js';
 let world = null;
 let ballBody = null;
 let cupTriggers = []; // [playerIndex][cupIndex] = body
+let cupRimBodies = []; // [playerIndex][cupIndex] = [body, body, ...] rim collision bodies
 let groundBody = null;
 let tableBody = null;
 let isSimulating = false;
@@ -22,11 +24,20 @@ let hitCallback = null;
 let missCallback = null;
 let simulationTimeout = null;
 
+// Materials
+let ballMaterial = null;
+let rimMaterial = null;
+let ballRimContact = null;
+
 export function initPhysics() {
+  const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
+    navigator.userAgent
+  );
+
   world = new CANNON.World({
     gravity: new CANNON.Vec3(0, GRAVITY, 0),
   });
-  world.solver.iterations = 10;
+  world.solver.iterations = isMobile ? 5 : 10;
   world.broadphase = new CANNON.SAPBroadphase(world);
   world.allowSleep = false;
 
@@ -46,47 +57,91 @@ export function initPhysics() {
 
   // Ball
   const ballShape = new CANNON.Sphere(BALL_RADIUS);
-  const ballMaterial = new CANNON.Material({ friction: BALL_FRICTION, restitution: BALL_RESTITUTION });
+  ballMaterial = new CANNON.Material({ friction: BALL_FRICTION, restitution: BALL_RESTITUTION });
   ballBody = new CANNON.Body({ mass: BALL_MASS, shape: ballShape, material: ballMaterial });
   ballBody.linearDamping = 0.01;
   world.addBody(ballBody);
 
-  // Contact material
-  const contactMat = new CANNON.ContactMaterial(ballMaterial, tableBody.material, {
+  // Rim material — slightly bouncy so ball deflects off cup edges
+  rimMaterial = new CANNON.Material({ friction: 0.2, restitution: 0.6 });
+
+  // Ball-rim contact: bouncy deflection
+  ballRimContact = new CANNON.ContactMaterial(ballMaterial, rimMaterial, {
+    friction: 0.2,
+    restitution: 0.65,
+  });
+  world.addContactMaterial(ballRimContact);
+
+  // Ball-table contact
+  const ballTableContact = new CANNON.ContactMaterial(ballMaterial, tableBody.material, {
     friction: 0.3,
     restitution: 0.6,
   });
-  world.addContactMaterial(contactMat);
+  world.addContactMaterial(ballTableContact);
 
-  // Create cup trigger zones for all 3 players
+  // Create cup colliders for all 3 players
+  // Each cup is ONE compound body (rim + wall spheres as shapes with offsets)
+  // This keeps body count low (~48 total) for fast broadphase
   cupTriggers = [];
+  cupRimBodies = [];
   for (let pi = 0; pi < 3; pi++) {
     const playerTriggers = [];
+    const playerRims = [];
     for (let ci = 0; ci < CUPS_PER_PLAYER; ci++) {
       const pos = getCupWorldPosition(pi, ci);
       if (!pos) {
         playerTriggers.push(null);
+        playerRims.push(null);
         continue;
       }
 
-      // Trigger zone: a cylinder slightly smaller than the cup opening
-      const triggerShape = new CANNON.Cylinder(
-        CUP_TOP_RADIUS * 0.8,
-        CUP_TOP_RADIUS * 0.8,
-        CUP_HEIGHT * 0.6,
-        8
-      );
-      const triggerBody = new CANNON.Body({
-        mass: 0,
-        shape: triggerShape,
-        isTrigger: true,
-      });
-      triggerBody.position.set(pos.x, pos.y, pos.z);
-      triggerBody.collisionResponse = false;
-      world.addBody(triggerBody);
-      playerTriggers.push(triggerBody);
+      // Store cup position for hit detection in stepPhysics
+      playerTriggers.push({ position: { x: pos.x, y: pos.y, z: pos.z } });
+
+      // One compound body per cup — all collision spheres are shapes with offsets
+      const cupBody = new CANNON.Body({ mass: 0, material: rimMaterial });
+      cupBody.position.set(pos.x, pos.y, pos.z);
+
+      // Rim ring — 16 overlapping spheres at the cup top
+      const RIM_SEGMENTS = 16;
+      const rimSphereRadius = 0.028;
+      const rimYOff = CUP_HEIGHT * 0.5; // offset from cup center
+
+      for (let s = 0; s < RIM_SEGMENTS; s++) {
+        const angle = (s / RIM_SEGMENTS) * Math.PI * 2;
+        const lx = Math.cos(angle) * CUP_TOP_RADIUS;
+        const lz = Math.sin(angle) * CUP_TOP_RADIUS;
+        cupBody.addShape(
+          new CANNON.Sphere(rimSphereRadius),
+          new CANNON.Vec3(lx, rimYOff, lz)
+        );
+      }
+
+      // Wall colliders — two rings of spheres forming the cup wall
+      const WALL_SEGMENTS = 12;
+      const wallLevels = [0.15, -0.05]; // offsets from cup center Y
+
+      for (const yOff of wallLevels) {
+        const t = (yOff + CUP_HEIGHT * 0.5) / CUP_HEIGHT; // 0=bottom, 1=top
+        const wallRadius = CUP_BOTTOM_RADIUS + (CUP_TOP_RADIUS - CUP_BOTTOM_RADIUS) * t;
+        const wallSphereRadius = 0.025;
+
+        for (let s = 0; s < WALL_SEGMENTS; s++) {
+          const angle = (s / WALL_SEGMENTS) * Math.PI * 2;
+          const lx = Math.cos(angle) * wallRadius;
+          const lz = Math.sin(angle) * wallRadius;
+          cupBody.addShape(
+            new CANNON.Sphere(wallSphereRadius),
+            new CANNON.Vec3(lx, yOff, lz)
+          );
+        }
+      }
+
+      world.addBody(cupBody);
+      playerRims.push(cupBody); // single body per cup now
     }
     cupTriggers.push(playerTriggers);
+    cupRimBodies.push(playerRims);
   }
 
   return world;
@@ -133,20 +188,31 @@ export function stepPhysics() {
     return { x: ballPos.x, y: ballPos.y, z: ballPos.z, done: true, hit: false };
   }
 
-  // Check cup triggers
+  // Check cup triggers — ball must enter from above the rim and descend inside the cup
   for (let pi = 0; pi < cupTriggers.length; pi++) {
     for (let ci = 0; ci < cupTriggers[pi].length; ci++) {
       const trigger = cupTriggers[pi][ci];
       if (!trigger) continue;
 
+      const cupCenterY = trigger.position.y; // center of cup
+      const rimY = cupCenterY + CUP_HEIGHT * 0.5; // top of cup rim
+
       const dx = ballPos.x - trigger.position.x;
-      const dy = ballPos.y - trigger.position.y;
       const dz = ballPos.z - trigger.position.z;
       const horizontalDist = Math.sqrt(dx * dx + dz * dz);
 
-      // Ball is inside trigger zone and moving downward
-      if (horizontalDist < CUP_TOP_RADIUS * 0.85 &&
-          Math.abs(dy) < CUP_HEIGHT * 0.4 &&
+      // Ball must be:
+      // 1. Horizontally inside the cup opening (within rim radius minus ball radius)
+      // 2. Below the rim plane (ball center dropped past the rim top)
+      // 3. Above the cup bottom (not fallen through somehow)
+      // 4. Moving downward
+      const maxHorizDist = CUP_TOP_RADIUS - BALL_RADIUS * 0.5;
+      const belowRim = ballPos.y < rimY - BALL_RADIUS;
+      const aboveBottom = ballPos.y > cupCenterY - CUP_HEIGHT * 0.3;
+
+      if (horizontalDist < maxHorizDist &&
+          belowRim &&
+          aboveBottom &&
           ballVel.y < 0) {
         isSimulating = false;
         clearTimeout(simulationTimeout);
@@ -160,9 +226,74 @@ export function stepPhysics() {
 }
 
 export function disableCupTrigger(playerIndex, cupIndex) {
+  // Remove trigger (plain position object)
   if (cupTriggers[playerIndex] && cupTriggers[playerIndex][cupIndex]) {
-    world.removeBody(cupTriggers[playerIndex][cupIndex]);
     cupTriggers[playerIndex][cupIndex] = null;
+  }
+  // Remove compound cup body
+  if (cupRimBodies[playerIndex] && cupRimBodies[playerIndex][cupIndex]) {
+    world.removeBody(cupRimBodies[playerIndex][cupIndex]);
+    cupRimBodies[playerIndex][cupIndex] = null;
+  }
+}
+
+export function rebuildCupColliders(playerIndex, newWorldPositions) {
+  // Remove all existing colliders for this player
+  for (let ci = 0; ci < CUPS_PER_PLAYER; ci++) {
+    if (cupRimBodies[playerIndex] && cupRimBodies[playerIndex][ci]) {
+      world.removeBody(cupRimBodies[playerIndex][ci]);
+      cupRimBodies[playerIndex][ci] = null;
+    }
+    if (cupTriggers[playerIndex]) {
+      cupTriggers[playerIndex][ci] = null;
+    }
+  }
+
+  // Rebuild for active cups at new positions
+  let posIdx = 0;
+  for (let ci = 0; ci < CUPS_PER_PLAYER; ci++) {
+    if (!cupTriggers[playerIndex]) continue;
+    // Skip removed cups — only rebuild for as many positions as provided
+    if (posIdx >= newWorldPositions.length) {
+      cupTriggers[playerIndex][ci] = null;
+      break;
+    }
+
+    const pos = newWorldPositions[posIdx];
+    cupTriggers[playerIndex][ci] = { position: { x: pos.x, y: CUP_HEIGHT / 2, z: pos.z } };
+
+    // Build compound body (same structure as initPhysics)
+    const cupBody = new CANNON.Body({ mass: 0, material: rimMaterial });
+    cupBody.position.set(pos.x, CUP_HEIGHT / 2, pos.z);
+
+    const RIM_SEGMENTS = 16;
+    const rimSphereRadius = 0.028;
+    const rimYOff = CUP_HEIGHT * 0.5;
+    for (let s = 0; s < RIM_SEGMENTS; s++) {
+      const angle = (s / RIM_SEGMENTS) * Math.PI * 2;
+      cupBody.addShape(
+        new CANNON.Sphere(rimSphereRadius),
+        new CANNON.Vec3(Math.cos(angle) * CUP_TOP_RADIUS, rimYOff, Math.sin(angle) * CUP_TOP_RADIUS)
+      );
+    }
+
+    const WALL_SEGMENTS = 12;
+    const wallLevels = [0.15, -0.05];
+    for (const yOff of wallLevels) {
+      const t = (yOff + CUP_HEIGHT * 0.5) / CUP_HEIGHT;
+      const wallRadius = CUP_BOTTOM_RADIUS + (CUP_TOP_RADIUS - CUP_BOTTOM_RADIUS) * t;
+      for (let s = 0; s < WALL_SEGMENTS; s++) {
+        const angle = (s / WALL_SEGMENTS) * Math.PI * 2;
+        cupBody.addShape(
+          new CANNON.Sphere(0.025),
+          new CANNON.Vec3(Math.cos(angle) * wallRadius, yOff, Math.sin(angle) * wallRadius)
+        );
+      }
+    }
+
+    world.addBody(cupBody);
+    cupRimBodies[playerIndex][ci] = cupBody;
+    posIdx++;
   }
 }
 

@@ -11,103 +11,151 @@ import {
   CUPS_PER_PLAYER,
 } from '../shared/constants.js';
 
-// Generate cup positions for a single player's triangle
-// Returns local positions (before rotation to player's side)
-function generateTrianglePositions() {
+// Cups packed tight — rims nearly touching (like real beer pong / Game Pigeon)
+const rowSpacing = CUP_TOP_RADIUS * 2 + 0.01;
+
+// Generate world positions for each player's cup triangle.
+// Triangle tip (1 cup) points toward center, base (5 cups) near the player.
+function generatePlayerPositions(playerIndex) {
+  const angle = PLAYER_ANGLES[playerIndex];
+
+  // Player's base position on the table edge
+  const baseX = Math.cos(angle) * PLAYER_DISTANCE;
+  const baseZ = -Math.sin(angle) * PLAYER_DISTANCE;
+
+  // Direction from player toward center (unit vector)
+  const towardCenterX = -Math.cos(angle);
+  const towardCenterZ = Math.sin(angle);
+
+  // Perpendicular direction (for spreading cups in a row)
+  const perpX = -towardCenterZ;
+  const perpZ = towardCenterX;
+
   const positions = [];
-  const rowSpacing = CUP_TOP_RADIUS * 2 + CUP_SPACING * 0.5;
+  const totalDepth = (CUP_ROWS.length - 1) * rowSpacing;
 
   for (let row = 0; row < CUP_ROWS.length; row++) {
     const cupsInRow = CUP_ROWS[row];
     const rowWidth = (cupsInRow - 1) * rowSpacing;
 
+    // Row 0 (1 cup, tip) is farthest from player (toward center)
+    // Row 4 (5 cups, base) is closest to player
+    const depthOffset = totalDepth - row * rowSpacing;
+
     for (let col = 0; col < cupsInRow; col++) {
-      const x = -rowWidth / 2 + col * rowSpacing;
-      const z = row * rowSpacing; // row 0 is front (closest to center)
-      positions.push({ x, z });
+      const lateralOffset = -rowWidth / 2 + col * rowSpacing;
+
+      const worldX = baseX + towardCenterX * depthOffset + perpX * lateralOffset;
+      const worldZ = baseZ + towardCenterZ * depthOffset + perpZ * lateralOffset;
+
+      positions.push({ x: worldX, z: worldZ });
     }
   }
+
   return positions;
 }
 
-const localPositions = generateTrianglePositions();
+// Pre-compute all player positions
+const allPlayerPositions = [
+  generatePlayerPositions(0),
+  generatePlayerPositions(1),
+  generatePlayerPositions(2),
+];
+
+// Get the center of a player's cup triangle in world coordinates
+export function getCupTriangleCenter(playerIndex) {
+  const positions = allPlayerPositions[playerIndex];
+  let avgX = 0, avgZ = 0;
+  for (const pos of positions) {
+    avgX += pos.x;
+    avgZ += pos.z;
+  }
+  avgX /= positions.length;
+  avgZ /= positions.length;
+
+  return { x: avgX, y: CUP_HEIGHT / 2, z: avgZ };
+}
 
 // Get the world position for a specific cup
 export function getCupWorldPosition(playerIndex, cupIndex) {
-  const local = localPositions[cupIndex];
-  if (!local) return null;
-
-  const angle = PLAYER_ANGLES[playerIndex];
-  const baseX = Math.cos(angle) * PLAYER_DISTANCE;
-  const baseZ = -Math.sin(angle) * PLAYER_DISTANCE;
-
-  // Rotate local position by player's angle
-  // The triangle points toward center, so we rotate the local positions
-  const cosA = Math.cos(angle + Math.PI); // +PI to face center
-  const sinA = Math.sin(angle + Math.PI);
-
-  const worldX = baseX + local.x * cosA - local.z * sinA;
-  const worldZ = baseZ + local.x * sinA + local.z * cosA;
-
-  return { x: worldX, y: CUP_HEIGHT / 2, z: worldZ };
+  const positions = allPlayerPositions[playerIndex];
+  if (!positions[cupIndex]) return null;
+  return { x: positions[cupIndex].x, y: CUP_HEIGHT / 2, z: positions[cupIndex].z };
 }
 
 export function createCups(scene) {
   const cupMeshes = []; // [playerIndex][cupIndex] = mesh
 
-  // Create cup geometry (shared)
+  // Shared cup geometry — higher poly for smoother look
   const cupGeometry = new THREE.CylinderGeometry(
     CUP_TOP_RADIUS,
     CUP_BOTTOM_RADIUS,
     CUP_HEIGHT,
-    16,
+    24,
     1,
     true // open ended
   );
 
   // Bottom disc
-  const bottomGeometry = new THREE.CircleGeometry(CUP_BOTTOM_RADIUS, 16);
+  const bottomGeometry = new THREE.CircleGeometry(CUP_BOTTOM_RADIUS, 24);
 
-  // Inner dark material (visible through open top)
+  // Rim torus at the top of each cup
+  const rimGeometry = new THREE.TorusGeometry(CUP_TOP_RADIUS, 0.008, 8, 24);
+
+  // Inner shell (visible through open top)
   const innerGeometry = new THREE.CylinderGeometry(
-    CUP_TOP_RADIUS * 0.95,
-    CUP_BOTTOM_RADIUS * 0.95,
-    CUP_HEIGHT * 0.95,
-    16,
+    CUP_TOP_RADIUS * 0.94,
+    CUP_BOTTOM_RADIUS * 0.94,
+    CUP_HEIGHT * 0.94,
+    24,
     1,
     true
   );
   const innerMaterial = new THREE.MeshStandardMaterial({
-    color: 0x331111,
-    roughness: 0.9,
+    color: 0x1a0808,
+    roughness: 0.95,
     side: THREE.BackSide,
   });
 
-  // Liquid surface inside cup
-  const liquidGeometry = new THREE.CircleGeometry(CUP_TOP_RADIUS * 0.85, 16);
-  const liquidMaterial = new THREE.MeshStandardMaterial({
-    color: 0xddaa33,
-    roughness: 0.3,
-    metalness: 0.1,
+  // Liquid surface — golden amber beer
+  const liquidGeometry = new THREE.CircleGeometry(CUP_TOP_RADIUS * 0.85, 24);
+  const liquidMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xcc8822,
+    roughness: 0.1,
+    metalness: 0.0,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.1,
     transparent: true,
-    opacity: 0.8,
+    opacity: 0.85,
   });
 
   for (let pi = 0; pi < 3; pi++) {
     const playerCups = [];
     const cupColor = PLAYER_COLORS[pi];
-    const cupMaterial = new THREE.MeshStandardMaterial({
+
+    // Glossy cup material — Solo cup style with clearcoat
+    const cupMaterial = new THREE.MeshPhysicalMaterial({
       color: cupColor,
       emissive: cupColor,
-      emissiveIntensity: 0.15,
-      roughness: 0.6,
-      metalness: 0.05,
+      emissiveIntensity: 0.08,
+      roughness: 0.35,
+      metalness: 0.0,
+      clearcoat: 0.3,
+      clearcoatRoughness: 0.4,
     });
     const bottomMaterial = new THREE.MeshStandardMaterial({
       color: cupColor,
       emissive: cupColor,
-      emissiveIntensity: 0.1,
-      roughness: 0.7,
+      emissiveIntensity: 0.05,
+      roughness: 0.5,
+    });
+    // Slightly brighter rim
+    const rimMaterial = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(cupColor).multiplyScalar(1.3),
+      roughness: 0.25,
+      metalness: 0.0,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.2,
     });
 
     for (let ci = 0; ci < CUPS_PER_PLAYER; ci++) {
@@ -126,6 +174,12 @@ export function createCups(scene) {
       const inner = new THREE.Mesh(innerGeometry, innerMaterial);
       group.add(inner);
 
+      // Rim at top of cup
+      const rim = new THREE.Mesh(rimGeometry, rimMaterial);
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = CUP_HEIGHT / 2;
+      group.add(rim);
+
       // Bottom
       const bottom = new THREE.Mesh(bottomGeometry, bottomMaterial);
       bottom.rotation.x = -Math.PI / 2;
@@ -135,7 +189,7 @@ export function createCups(scene) {
       // Liquid surface
       const liquid = new THREE.Mesh(liquidGeometry, liquidMaterial);
       liquid.rotation.x = -Math.PI / 2;
-      liquid.position.y = CUP_HEIGHT * 0.3; // liquid level
+      liquid.position.y = CUP_HEIGHT * 0.3;
       group.add(liquid);
 
       group.userData = { playerIndex: pi, cupIndex: ci };
@@ -146,6 +200,20 @@ export function createCups(scene) {
   }
 
   return cupMeshes;
+}
+
+export function repositionCups(cupMeshes, scene, playerIndex, newWorldPositions) {
+  // newWorldPositions is array of {x, z} for each ACTIVE cup
+  // Map active cups to new positions
+  let posIdx = 0;
+  for (let ci = 0; ci < CUPS_PER_PLAYER; ci++) {
+    const mesh = cupMeshes[playerIndex][ci];
+    if (!mesh) continue; // cup already removed
+    if (posIdx >= newWorldPositions.length) break;
+    const pos = newWorldPositions[posIdx];
+    mesh.position.set(pos.x, CUP_HEIGHT / 2, pos.z);
+    posIdx++;
+  }
 }
 
 export function removeCup(cupMeshes, scene, playerIndex, cupIndex) {
