@@ -36,32 +36,26 @@ const C = {
 // ─── Material factories ───
 
 function fleshMat(color = C.FLESH, wetness = 0.5) {
-  if (isMobile) {
-    return new THREE.MeshStandardMaterial({ color, roughness: 0.7 - wetness * 0.3, metalness: 0.0 });
-  }
   return new THREE.MeshPhysicalMaterial({
     color,
     roughness: 0.7 - wetness * 0.4,
     metalness: 0.0,
-    clearcoat: wetness * 0.3,
+    clearcoat: isMobile ? wetness * 0.15 : wetness * 0.3,
     clearcoatRoughness: 0.4,
-    sheen: 0.3,
+    sheen: isMobile ? 0.15 : 0.3,
     sheenRoughness: 0.5,
     sheenColor: new THREE.Color(0xff6644),
   });
 }
 
 function organMat(color = C.ORGAN_RED, wetness = 0.8) {
-  if (isMobile) {
-    return new THREE.MeshStandardMaterial({ color, roughness: 0.25, metalness: 0.0 });
-  }
   return new THREE.MeshPhysicalMaterial({
     color,
     roughness: 0.2,
     metalness: 0.0,
-    clearcoat: 0.6,
+    clearcoat: isMobile ? 0.3 : 0.6,
     clearcoatRoughness: 0.15,
-    sheen: 0.5,
+    sheen: isMobile ? 0.25 : 0.5,
     sheenRoughness: 0.3,
     sheenColor: new THREE.Color(0xff4422),
   });
@@ -84,7 +78,6 @@ function boneMat() {
 // ─── Geometry helpers ───
 
 function displaceVertices(geo, amount = 0.02, freq = 3.0) {
-  if (isMobile) return;
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
