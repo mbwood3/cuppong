@@ -21,6 +21,18 @@ let overlay = null;
 let lastTime = 0;
 let isTestMode = false;
 let isFreeplay = false;
+let isAsyncMode = false;
+let asyncGameCode = null;
+let asyncPhone = null;
+
+async function submitAsyncAction(action) {
+  const response = await fetch(`/api/game/${asyncGameCode}/action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: asyncPhone, action }),
+  });
+  return response.json();
+}
 
 // On-screen debug for mobile
 let _dbg = null;
@@ -35,12 +47,18 @@ function dbg(msg) {
 }
 window._dbg = dbg; // make available globally
 
-export function startGame(canvasContainer, uiOverlay, initialGameState, playerIndex) {
+export function startGame(canvasContainer, uiOverlay, initialGameState, playerIndex, asyncConfig) {
   gameState = initialGameState;
   myIndex = playerIndex;
   overlay = uiOverlay;
   isTestMode = new URLSearchParams(window.location.search).has('test');
   isFreeplay = !!window.__freeplay;
+
+  if (asyncConfig) {
+    isAsyncMode = true;
+    asyncGameCode = asyncConfig.gameCode;
+    asyncPhone = asyncConfig.phone;
+  }
 
   dbg('GAME STARTED v2 myIdx=' + myIndex + ' myId=' + window.__socketId + ' freeplay=' + isFreeplay);
   dbg('players: ' + initialGameState.players.map(p => p.name + '(id=' + p.id.slice(-4) + ')').join(', '));
@@ -82,7 +100,7 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
   });
 
   // Listen for game events (only in multiplayer mode)
-  if (!isTestMode && !isFreeplay) {
+  if (!isTestMode && !isFreeplay && !isAsyncMode) {
     on(EVENTS.TARGET_SELECTED, onTargetSelected);
     on(EVENTS.BALL_THROWN, onBallThrown);
     on(EVENTS.THROW_RESOLVED, onThrowResolved);
@@ -165,6 +183,10 @@ function handleTurnPhase() {
       showTargetSelector();
       setCameraPlayerView(myIndex);
     } else {
+      if (isAsyncMode) {
+        showWaitingForTurn();
+        return;
+      }
       setCameraPlayerView(myIndex);
       disableThrow();
     }
@@ -181,6 +203,10 @@ function handleTurnPhase() {
         });
       }, 600); // wait for camera transition
     } else {
+      if (isAsyncMode) {
+        showWaitingForTurn();
+        return;
+      }
       setCameraSpectatorView(gameState.currentTurnIndex, gameState.currentTarget);
       disableThrow();
     }
@@ -236,6 +262,15 @@ function showTargetSelector() {
         } else {
           gameState.turnPhase = 'throwing';
         }
+        updateUI();
+        handleTurnPhase();
+      } else if (isAsyncMode) {
+        const data = await submitAsyncAction({ type: 'select_target', targetIndex });
+        if (data.error) {
+          console.error('Select target error:', data.error);
+          return;
+        }
+        gameState = data.gameState;
         updateUI();
         handleTurnPhase();
       } else {
@@ -294,6 +329,35 @@ async function onMyThrow(velocity) {
       // On miss
       () => {
         handleTestThrowResult(false, null, null);
+      }
+    );
+  } else if (isAsyncMode) {
+    // Async mode: run physics locally, then report result via REST
+    launchBall(
+      startPos,
+      transformedVelocity,
+      null,
+      // On hit
+      async (playerIndex, cupIndex) => {
+        const data = await submitAsyncAction({
+          type: 'throw_result',
+          hit: true,
+          cupIndex,
+        });
+        if (!data.error) {
+          handleAsyncThrowResult(data, true, playerIndex, cupIndex);
+        }
+      },
+      // On miss
+      async () => {
+        const data = await submitAsyncAction({
+          type: 'throw_result',
+          hit: false,
+          cupIndex: null,
+        });
+        if (!data.error) {
+          handleAsyncThrowResult(data, false, null, null);
+        }
       }
     );
   } else {
@@ -408,6 +472,113 @@ function handleTestThrowResult(hit, targetPlayerIndex, cupIndex) {
       handleTurnPhase();
     }, 800);
   }
+}
+
+function handleAsyncThrowResult(data, hit, targetPlayerIndex, cupIndex) {
+  gameState = data.gameState;
+
+  if (hit && cupIndex != null && targetPlayerIndex != null) {
+    // Remove cup visually + play hit effects
+    const cupPos = getCupWorldPosition(targetPlayerIndex, cupIndex);
+    removeCup(cupMeshes, getScene(), targetPlayerIndex, cupIndex);
+    disableCupTrigger(targetPlayerIndex, cupIndex);
+    flashScreen(COLOR_HEX[myIndex]);
+    showHitText();
+    if (cupPos) {
+      playCupHitEffect(cupPos.x, cupPos.y, cupPos.z, PLAYER_COLORS[targetPlayerIndex]);
+      cameraShake(getCamera());
+    }
+  }
+
+  setTimeout(() => {
+    hideBall();
+
+    if (data.result && data.result.gameOver) {
+      updateUI();
+      showGameOver();
+      return;
+    }
+
+    if (data.result && data.result.ballsBack) {
+      showBallsBack();
+      setTimeout(() => {
+        updateUI();
+        handleTurnPhase();
+      }, 1500);
+      return;
+    }
+
+    // Check if it's still our turn
+    const currentPlayer = gameState.players[gameState.currentTurnIndex];
+    if (currentPlayer.id === getMyId()) {
+      updateUI();
+      handleTurnPhase();
+    } else {
+      // Turn is over, show waiting screen
+      updateUI();
+      showWaitingForTurn();
+    }
+  }, 800);
+}
+
+function showWaitingForTurn() {
+  const currentPlayer = gameState.players[gameState.currentTurnIndex];
+
+  // Remove any selectors/hints
+  const selector = overlay.querySelector('.target-selector');
+  if (selector) selector.remove();
+  const hint = overlay.querySelector('.swipe-hint');
+  if (hint) hint.remove();
+
+  disableThrow();
+  setCameraPlayerView(myIndex);
+
+  // Show waiting message
+  const existing = overlay.querySelector('.waiting-turn');
+  if (existing) existing.remove();
+
+  const waitDiv = document.createElement('div');
+  waitDiv.className = 'waiting-turn';
+  waitDiv.style.cssText = `
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; z-index: 30; pointer-events: auto;
+  `;
+  waitDiv.innerHTML = `
+    <div style="font-size: 1.4rem; font-weight: 700; color: #fff; margin-bottom: 12px; text-shadow: 0 2px 8px rgba(0,0,0,0.8);">
+      Waiting for ${currentPlayer.name}
+    </div>
+    <div style="font-size: 0.9rem; color: rgba(255,255,255,0.6); margin-bottom: 20px;">
+      They'll get a text when it's their turn
+    </div>
+    <button class="btn btn-secondary" id="btn-refresh-game" style="max-width: 200px; margin: 0 auto;">
+      Refresh
+    </button>
+  `;
+  overlay.appendChild(waitDiv);
+
+  document.getElementById('btn-refresh-game').addEventListener('click', async () => {
+    try {
+      const res = await fetch(`/api/game/${asyncGameCode}`);
+      const data = await res.json();
+      if (data.error) return;
+
+      gameState = data.gameState;
+
+      // Remove waiting div
+      waitDiv.remove();
+      updateUI();
+
+      // Check if it's now our turn
+      const cur = gameState.players[gameState.currentTurnIndex];
+      if (cur.id === getMyId()) {
+        handleTurnPhase();
+      } else {
+        showWaitingForTurn();
+      }
+    } catch (err) {
+      console.error('Refresh error:', err);
+    }
+  });
 }
 
 function transformVelocityForDirection(velocity, throwerIndex, targetIndex) {
@@ -531,6 +702,17 @@ function showRerackUI(targetIndex) {
       gameState.turnPhase = 'throwing';
       updateUI();
       handleTurnPhase();
+    } else if (isAsyncMode) {
+      const data = await submitAsyncAction({
+        type: 'rerack',
+        targetIndex,
+        positions: currentPositions,
+      });
+      if (!data.error) {
+        gameState = data.gameState;
+        updateUI();
+        handleTurnPhase();
+      }
     } else {
       // Send to server
       await emit(EVENTS.RERACK_CUPS, {
@@ -552,6 +734,13 @@ function showRerackUI(targetIndex) {
       gameState.turnPhase = 'throwing';
       updateUI();
       handleTurnPhase();
+    } else if (isAsyncMode) {
+      const data = await submitAsyncAction({ type: 'skip_rerack' });
+      if (!data.error) {
+        gameState = data.gameState;
+        updateUI();
+        handleTurnPhase();
+      }
     } else {
       await emit(EVENTS.SKIP_RERACK);
     }
