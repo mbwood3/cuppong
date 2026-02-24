@@ -117,6 +117,11 @@ function updateUI() {
         Throw ${gameState.throwNumber + 1} of 2
         ${gameState.hitsThisTurn > 0 ? ` | ${gameState.hitsThisTurn} hit` : ''}
       </div>
+      ${isMyTurn && currentPlayer.reracksRemaining > 0 ? `
+        <div class="rerack-counter" style="font-size: 0.8rem; opacity: 0.7;">
+          Reracks: ${currentPlayer.reracksRemaining} remaining
+        </div>
+      ` : ''}
     </div>
     <div class="hud-bottom">
       <div class="cup-counts">
