@@ -26,6 +26,7 @@ let isFreeplay = false;
 let isAsyncMode = false;
 let asyncGameCode = null;
 let asyncPhone = null;
+let cupHitStreak = 0;
 
 async function submitAsyncAction(action) {
   const response = await fetch(`/api/game/${asyncGameCode}/action`, {
@@ -382,6 +383,7 @@ function handleTestThrowResult(hit, targetPlayerIndex, cupIndex) {
       result.hit = true;
       result.cupIndex = cupIndex;
       gameState.hitsThisTurn++;
+      cupHitStreak++;
 
       // Remove cup visually + play hit effects
       const cupPos = getCupWorldPosition(targetPlayerIndex, cupIndex);
@@ -407,6 +409,8 @@ function handleTestThrowResult(hit, targetPlayerIndex, cupIndex) {
       }
     }
   }
+
+  if (!result.hit) cupHitStreak = 0;
 
   gameState.throwNumber++;
 
@@ -880,14 +884,20 @@ function playHitChime() {
 }
 
 function showHitText() {
-  const phrase = HIT_PHRASES[Math.floor(Math.random() * HIT_PHRASES.length)];
+  const isSlut = cupHitStreak >= 2;
+  const phrase = isSlut ? 'CUP SLUT!' : HIT_PHRASES[Math.floor(Math.random() * HIT_PHRASES.length)];
   speakPhrase(phrase);
 
   const el = document.createElement('div');
   el.textContent = phrase;
+  const fontSize = isSlut ? '4rem' : '3rem';
+  const color = isSlut ? '#ff3366' : '#fff';
+  const shadow = isSlut
+    ? '0 0 30px rgba(255,50,100,1), 0 0 60px rgba(255,0,50,0.7), 0 0 90px rgba(255,0,100,0.4)'
+    : '0 0 20px rgba(255,100,50,0.9), 0 0 40px rgba(255,50,0,0.5)';
   el.style.cssText = `
     position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%) scale(0.5);
-    font-size: 3rem; font-weight: 900; color: #fff; text-shadow: 0 0 20px rgba(255,100,50,0.9), 0 0 40px rgba(255,50,0,0.5);
+    font-size: ${fontSize}; font-weight: 900; color: ${color}; text-shadow: ${shadow};
     z-index: 30; pointer-events: none; opacity: 0;
     transition: transform 0.3s cubic-bezier(0.2, 1.5, 0.4, 1), opacity 0.3s ease-out;
   `;
@@ -899,7 +909,7 @@ function showHitText() {
       el.style.opacity = '0';
       el.style.transform = 'translate(-50%, -50%) scale(1.3)';
       setTimeout(() => el.remove(), 400);
-    }, 800);
+    }, isSlut ? 1200 : 800);
   });
 }
 

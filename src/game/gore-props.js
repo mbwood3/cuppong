@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { TABLE_RADIUS } from '../shared/constants.js';
+import {
+  TABLE_RADIUS,
+  CUP_TOP_RADIUS,
+  CUP_ROWS,
+  PLAYER_ANGLES,
+  PLAYER_DISTANCE,
+} from '../shared/constants.js';
 import { getBallMaterial } from './physics.js';
 
 // ─── Mobile detection ───
@@ -32,6 +38,87 @@ const C = {
   TENDON:       0xd8d0c0,
   NAIL:         0xf0e0d0,
 };
+
+// ─── Cup exclusion zones ───
+// Pre-compute all cup world positions so gore props don't overlap them.
+const CUP_ZONE_RADIUS = 0.75; // clearance around each cup center (must exceed largest physics body radius)
+const rowSpacing = CUP_TOP_RADIUS * 2 + 0.01;
+
+const allCupPositions = [];
+for (let pi = 0; pi < 3; pi++) {
+  const angle = PLAYER_ANGLES[pi];
+  const baseX = Math.cos(angle) * PLAYER_DISTANCE;
+  const baseZ = -Math.sin(angle) * PLAYER_DISTANCE;
+  const towardCenterX = -Math.cos(angle);
+  const towardCenterZ = Math.sin(angle);
+  const perpX = -towardCenterZ;
+  const perpZ = towardCenterX;
+  const totalDepth = (CUP_ROWS.length - 1) * rowSpacing;
+
+  for (let row = 0; row < CUP_ROWS.length; row++) {
+    const cupsInRow = CUP_ROWS[row];
+    const rowWidth = (cupsInRow - 1) * rowSpacing;
+    const depthOffset = totalDepth - row * rowSpacing;
+    for (let col = 0; col < cupsInRow; col++) {
+      const lateralOffset = -rowWidth / 2 + col * rowSpacing;
+      allCupPositions.push({
+        x: baseX + towardCenterX * depthOffset + perpX * lateralOffset,
+        z: baseZ + towardCenterZ * depthOffset + perpZ * lateralOffset,
+      });
+    }
+  }
+}
+
+// Check if (x, z) is too close to any cup. Returns true if inside a cup zone.
+function insideCupZone(x, z) {
+  for (const cup of allCupPositions) {
+    const dx = x - cup.x;
+    const dz = z - cup.z;
+    if (dx * dx + dz * dz < CUP_ZONE_RADIUS * CUP_ZONE_RADIUS) return true;
+  }
+  return false;
+}
+
+// Nudge a position outward from the nearest cup center until it clears all zones.
+// Returns { x, z } that is guaranteed outside all cup zones (and inside table).
+function safePos(x, z) {
+  if (!insideCupZone(x, z)) return { x, z };
+
+  // Find the nearest cup and push away from it
+  let nearestDist = Infinity, nearestCup = null;
+  for (const cup of allCupPositions) {
+    const dx = x - cup.x;
+    const dz = z - cup.z;
+    const d = dx * dx + dz * dz;
+    if (d < nearestDist) { nearestDist = d; nearestCup = cup; }
+  }
+  const dx = x - nearestCup.x;
+  const dz = z - nearestCup.z;
+  const dist = Math.sqrt(dx * dx + dz * dz) || 0.01;
+  const pushDist = CUP_ZONE_RADIUS + 0.05;
+  let nx = nearestCup.x + (dx / dist) * pushDist;
+  let nz = nearestCup.z + (dz / dist) * pushDist;
+
+  // Clamp inside table (with small margin)
+  const maxR = TABLE_RADIUS * 0.85;
+  const r = Math.sqrt(nx * nx + nz * nz);
+  if (r > maxR) { nx *= maxR / r; nz *= maxR / r; }
+
+  // If still inside a cup zone after push (rare, near overlapping zones), try harder
+  if (insideCupZone(nx, nz)) {
+    // Spiral outward in small steps
+    for (let ang = 0; ang < Math.PI * 2; ang += 0.3) {
+      for (let rd = pushDist; rd < pushDist + 1.5; rd += 0.2) {
+        const tx = nearestCup.x + Math.cos(ang) * rd;
+        const tz = nearestCup.z + Math.sin(ang) * rd;
+        const tr = Math.sqrt(tx * tx + tz * tz);
+        if (tr < maxR && !insideCupZone(tx, tz)) return { x: tx, z: tz };
+      }
+    }
+  }
+
+  return { x: nx, z: nz };
+}
 
 // ─── Material factories ───
 
@@ -158,6 +245,7 @@ function createPropBody(world, position, shape, mass = 0.5) {
     allowSleep: true,
     sleepSpeedLimit: 0.1,
     sleepTimeLimit: 1,
+    collisionResponse: false, // don't block the ball — events still fire for eyeball detection
   });
   world.addBody(body);
   return body;
@@ -264,9 +352,10 @@ function createEyeball(scene, x, z) {
   const group = new THREE.Group();
 
   const eyeGeo = new THREE.SphereGeometry(0.12, SPHERE_SEG, SPHERE_SEG);
-  const eyeMat = isMobile
-    ? new THREE.MeshStandardMaterial({ color: 0xf5f0e0, roughness: 0.3, metalness: 0.05 })
-    : new THREE.MeshPhysicalMaterial({ color: 0xf5f0e0, roughness: 0.15, metalness: 0.05, clearcoat: 0.8, clearcoatRoughness: 0.1 });
+  const eyeMat = new THREE.MeshPhysicalMaterial({
+    color: 0xf5f0e0, roughness: isMobile ? 0.25 : 0.15, metalness: 0.05,
+    clearcoat: isMobile ? 0.4 : 0.8, clearcoatRoughness: 0.1,
+  });
   const eye = new THREE.Mesh(eyeGeo, eyeMat);
   eye.position.y = 0.12;
   group.add(eye);
@@ -903,139 +992,147 @@ export function addGoreProps(scene, world, onEyeballHit) {
     return { mesh, body };
   }
 
+  // Helper: create gore at a safe position (avoiding cup zones)
+  function sp(rawX, rawZ) { return safePos(rawX, rawZ); }
+
   // ─── Blood puddles (12) ───
-  createBloodPuddle(scene, R * 0.3, R * 0.5, 1.2);
-  createBloodPuddle(scene, -R * 0.45, -R * 0.2, 0.9);
-  createBloodPuddle(scene, R * 0.1, -R * 0.55, 1.0);
-  createBloodPuddle(scene, -R * 0.6, R * 0.35, 0.7);
-  createBloodPuddle(scene, R * 0.55, -R * 0.45, 0.8);
-  createBloodPuddle(scene, -R * 0.2, -R * 0.6, 1.1);
-  createBloodPuddle(scene, R * 0.65, R * 0.1, 0.6);
-  createBloodPuddle(scene, -R * 0.1, R * 0.65, 0.9);
-  createBloodPuddle(scene, R * 0.4, -R * 0.5, 0.7);
-  createBloodPuddle(scene, -R * 0.55, -R * 0.5, 1.0);
-  createBloodPuddle(scene, R * 0.15, R * 0.35, 0.5);
-  createBloodPuddle(scene, -R * 0.35, R * 0.15, 0.8);
+  const puddleRaw = [
+    [R*0.3, R*0.5, 1.2], [-R*0.45, -R*0.2, 0.9], [R*0.1, -R*0.55, 1.0],
+    [-R*0.6, R*0.35, 0.7], [R*0.55, -R*0.45, 0.8], [-R*0.2, -R*0.6, 1.1],
+    [R*0.65, R*0.1, 0.6], [-R*0.1, R*0.65, 0.9], [R*0.4, -R*0.5, 0.7],
+    [-R*0.55, -R*0.5, 1.0], [R*0.15, R*0.35, 0.5], [-R*0.35, R*0.15, 0.8],
+  ];
+  for (const [rx, rz, sz] of puddleRaw) {
+    const s = sp(rx, rz);
+    createBloodPuddle(scene, s.x, s.z, sz);
+  }
 
   // ─── Blood smears (9) ───
-  createBloodSmear(scene, -R * 0.2, R * 0.4, 0.8, 1.2);
-  createBloodSmear(scene, R * 0.35, -R * 0.3, -1.5, 0.9);
-  createBloodSmear(scene, R * 0.5, R * 0.2, 2.1, 0.7);
-  createBloodSmear(scene, -R * 0.5, -R * 0.1, 1.0, 1.0);
-  createBloodSmear(scene, R * 0.1, R * 0.6, -0.5, 0.8);
-  createBloodSmear(scene, -R * 0.3, -R * 0.55, 2.8, 1.1);
-  createBloodSmear(scene, R * 0.6, -R * 0.2, 0.3, 0.6);
-  createBloodSmear(scene, -R * 0.6, R * 0.5, -1.2, 0.9);
-  createBloodSmear(scene, R * 0.25, -R * 0.6, 1.7, 0.7);
+  const smearRaw = [
+    [-R*0.2, R*0.4, 0.8, 1.2], [R*0.35, -R*0.3, -1.5, 0.9],
+    [R*0.5, R*0.2, 2.1, 0.7], [-R*0.5, -R*0.1, 1.0, 1.0],
+    [R*0.1, R*0.6, -0.5, 0.8], [-R*0.3, -R*0.55, 2.8, 1.1],
+    [R*0.6, -R*0.2, 0.3, 0.6], [-R*0.6, R*0.5, -1.2, 0.9],
+    [R*0.25, -R*0.6, 1.7, 0.7],
+  ];
+  for (const [rx, rz, rot, sz] of smearRaw) {
+    const s = sp(rx, rz);
+    createBloodSmear(scene, s.x, s.z, rot, sz);
+  }
 
   // ─── Severed heads (3) ───
-  const head1 = createSeveredHead(scene, 0, 0);
-  addProp(head1, { x: 0, y: 0.5, z: 0 }, new CANNON.Sphere(0.5), 2.0);
-  const head2 = createSeveredHead(scene, -R * 0.5, -R * 0.55);
-  addProp(head2, { x: -R * 0.5, y: 0.5, z: -R * 0.55 }, new CANNON.Sphere(0.5), 2.0);
-  const head3 = createSeveredHead(scene, R * 0.45, R * 0.5);
-  addProp(head3, { x: R * 0.45, y: 0.5, z: R * 0.5 }, new CANNON.Sphere(0.5), 2.0);
+  { const s = sp(0, 0);
+    const h = createSeveredHead(scene, s.x, s.z);
+    addProp(h, { x: s.x, y: 0.5, z: s.z }, new CANNON.Sphere(0.5), 2.0); }
+  { const s = sp(-R*0.5, -R*0.55);
+    const h = createSeveredHead(scene, s.x, s.z);
+    addProp(h, { x: s.x, y: 0.5, z: s.z }, new CANNON.Sphere(0.5), 2.0); }
+  { const s = sp(R*0.45, R*0.5);
+    const h = createSeveredHead(scene, s.x, s.z);
+    addProp(h, { x: s.x, y: 0.5, z: s.z }, new CANNON.Sphere(0.5), 2.0); }
 
   // ─── EYEBALLS (8) — scattered everywhere, all trigger hit reaction ───
-  addEyeball(-R * 0.15, R * 0.3);
-  addEyeball(R * 0.25, -R * 0.2);
-  addEyeball(-R * 0.4, R * 0.5);
-  addEyeball(R * 0.5, R * 0.15);
-  addEyeball(-R * 0.55, -R * 0.15);
-  addEyeball(R * 0.1, R * 0.55);
-  addEyeball(-R * 0.2, -R * 0.45);
-  addEyeball(R * 0.6, -R * 0.35);
+  const eyeRaw = [
+    [-R*0.15, R*0.3], [R*0.25, -R*0.2], [-R*0.4, R*0.5], [R*0.5, R*0.15],
+    [-R*0.55, -R*0.15], [R*0.1, R*0.55], [-R*0.2, -R*0.45], [R*0.6, -R*0.35],
+  ];
+  for (const [rx, rz] of eyeRaw) {
+    const s = sp(rx, rz);
+    addEyeball(s.x, s.z);
+  }
 
   // ─── Hearts (3) ───
-  const ht1 = createHeart(scene, R * 0.35, -R * 0.15);
-  addProp(ht1, { x: R * 0.35, y: 0.15, z: -R * 0.15 }, new CANNON.Sphere(0.15), 0.3);
-  const ht2 = createHeart(scene, -R * 0.6, -R * 0.3);
-  addProp(ht2, { x: -R * 0.6, y: 0.15, z: -R * 0.3 }, new CANNON.Sphere(0.15), 0.3);
-  const ht3 = createHeart(scene, R * 0.15, R * 0.65);
-  addProp(ht3, { x: R * 0.15, y: 0.15, z: R * 0.65 }, new CANNON.Sphere(0.15), 0.3);
+  { const s = sp(R*0.35, -R*0.15);
+    addProp(createHeart(scene, s.x, s.z), { x: s.x, y: 0.15, z: s.z }, new CANNON.Sphere(0.15), 0.3); }
+  { const s = sp(-R*0.6, -R*0.3);
+    addProp(createHeart(scene, s.x, s.z), { x: s.x, y: 0.15, z: s.z }, new CANNON.Sphere(0.15), 0.3); }
+  { const s = sp(R*0.15, R*0.65);
+    addProp(createHeart(scene, s.x, s.z), { x: s.x, y: 0.15, z: s.z }, new CANNON.Sphere(0.15), 0.3); }
 
   // ─── Intestines (3) ───
-  const int1 = createIntestines(scene, -R * 0.4, -R * 0.35);
-  addProp(int1, { x: -R * 0.4, y: 0.06, z: -R * 0.35 }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8);
-  const int2 = createIntestines(scene, R * 0.55, -R * 0.5);
-  addProp(int2, { x: R * 0.55, y: 0.06, z: -R * 0.5 }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8);
-  const int3 = createIntestines(scene, -R * 0.15, R * 0.55);
-  addProp(int3, { x: -R * 0.15, y: 0.06, z: R * 0.55 }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8);
+  { const s = sp(-R*0.4, -R*0.35);
+    addProp(createIntestines(scene, s.x, s.z), { x: s.x, y: 0.06, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8); }
+  { const s = sp(R*0.55, -R*0.5);
+    addProp(createIntestines(scene, s.x, s.z), { x: s.x, y: 0.06, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8); }
+  { const s = sp(-R*0.15, R*0.55);
+    addProp(createIntestines(scene, s.x, s.z), { x: s.x, y: 0.06, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8); }
 
   // ─── Brains (3) ───
-  const br1 = createBrain(scene, R * 0.2, R * 0.5);
-  addProp(br1, { x: R * 0.2, y: 0.12, z: R * 0.5 }, new CANNON.Sphere(0.13), 0.4);
-  const br2 = createBrain(scene, -R * 0.35, -R * 0.6);
-  addProp(br2, { x: -R * 0.35, y: 0.12, z: -R * 0.6 }, new CANNON.Sphere(0.13), 0.4);
-  const br3 = createBrain(scene, R * 0.6, R * 0.3);
-  addProp(br3, { x: R * 0.6, y: 0.12, z: R * 0.3 }, new CANNON.Sphere(0.13), 0.4);
+  { const s = sp(R*0.2, R*0.5);
+    addProp(createBrain(scene, s.x, s.z), { x: s.x, y: 0.12, z: s.z }, new CANNON.Sphere(0.13), 0.4); }
+  { const s = sp(-R*0.35, -R*0.6);
+    addProp(createBrain(scene, s.x, s.z), { x: s.x, y: 0.12, z: s.z }, new CANNON.Sphere(0.13), 0.4); }
+  { const s = sp(R*0.6, R*0.3);
+    addProp(createBrain(scene, s.x, s.z), { x: s.x, y: 0.12, z: s.z }, new CANNON.Sphere(0.13), 0.4); }
 
   // ─── Livers (2) ───
-  const lv1 = createLiver(scene, -R * 0.55, R * 0.1);
-  addProp(lv1, { x: -R * 0.55, y: 0.05, z: R * 0.1 }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.15)), 0.5);
-  const lv2 = createLiver(scene, R * 0.4, -R * 0.6);
-  addProp(lv2, { x: R * 0.4, y: 0.05, z: -R * 0.6 }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.15)), 0.5);
+  { const s = sp(-R*0.55, R*0.1);
+    addProp(createLiver(scene, s.x, s.z), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.15)), 0.5); }
+  { const s = sp(R*0.4, -R*0.6);
+    addProp(createLiver(scene, s.x, s.z), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.15)), 0.5); }
 
   // ─── Forearms (3) ───
-  const fa1 = createForearm(scene, R * 0.5, R * 0.35, -0.4);
-  addProp(fa1, { x: R * 0.5, y: 0.12, z: R * 0.35 }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5);
-  const fa2 = createForearm(scene, -R * 0.6, -R * 0.45, 1.2);
-  addProp(fa2, { x: -R * 0.6, y: 0.12, z: -R * 0.45 }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5);
-  const fa3 = createForearm(scene, R * 0.1, -R * 0.65, 2.8);
-  addProp(fa3, { x: R * 0.1, y: 0.12, z: -R * 0.65 }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5);
+  { const s = sp(R*0.5, R*0.35);
+    addProp(createForearm(scene, s.x, s.z, -0.4), { x: s.x, y: 0.12, z: s.z }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5); }
+  { const s = sp(-R*0.6, -R*0.45);
+    addProp(createForearm(scene, s.x, s.z, 1.2), { x: s.x, y: 0.12, z: s.z }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5); }
+  { const s = sp(R*0.1, -R*0.65);
+    addProp(createForearm(scene, s.x, s.z, 2.8), { x: s.x, y: 0.12, z: s.z }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5); }
 
   // ─── Feet (3) ───
-  const ft1 = createFoot(scene, -R * 0.3, R * 0.55, 1.8);
-  addProp(ft1, { x: -R * 0.3, y: 0.05, z: R * 0.55 }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0);
-  const ft2 = createFoot(scene, R * 0.65, R * 0.1, -0.7);
-  addProp(ft2, { x: R * 0.65, y: 0.05, z: R * 0.1 }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0);
-  const ft3 = createFoot(scene, -R * 0.5, -R * 0.2, 3.0);
-  addProp(ft3, { x: -R * 0.5, y: 0.05, z: -R * 0.2 }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0);
+  { const s = sp(-R*0.3, R*0.55);
+    addProp(createFoot(scene, s.x, s.z, 1.8), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0); }
+  { const s = sp(R*0.65, R*0.1);
+    addProp(createFoot(scene, s.x, s.z, -0.7), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0); }
+  { const s = sp(-R*0.5, -R*0.2);
+    addProp(createFoot(scene, s.x, s.z, 3.0), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0); }
 
   // ─── Ears (3) ───
-  const ear1 = createEar(scene, R * 0.6, -R * 0.4, 0.9);
-  addProp(ear1, { x: R * 0.6, y: 0.02, z: -R * 0.4 }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05);
-  const ear2 = createEar(scene, -R * 0.45, R * 0.6, -1.5);
-  addProp(ear2, { x: -R * 0.45, y: 0.02, z: R * 0.6 }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05);
-  const ear3 = createEar(scene, R * 0.3, R * 0.55, 2.3);
-  addProp(ear3, { x: R * 0.3, y: 0.02, z: R * 0.55 }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05);
+  { const s = sp(R*0.6, -R*0.4);
+    addProp(createEar(scene, s.x, s.z, 0.9), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05); }
+  { const s = sp(-R*0.45, R*0.6);
+    addProp(createEar(scene, s.x, s.z, -1.5), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05); }
+  { const s = sp(R*0.3, R*0.55);
+    addProp(createEar(scene, s.x, s.z, 2.3), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05); }
 
   // ─── Tongues (3) ───
-  const tg1 = createTongue(scene, -R * 0.15, -R * 0.5, -0.6);
-  addProp(tg1, { x: -R * 0.15, y: 0.02, z: -R * 0.5 }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1);
-  const tg2 = createTongue(scene, R * 0.45, R * 0.45, 1.4);
-  addProp(tg2, { x: R * 0.45, y: 0.02, z: R * 0.45 }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1);
-  const tg3 = createTongue(scene, -R * 0.6, -R * 0.55, 2.9);
-  addProp(tg3, { x: -R * 0.6, y: 0.02, z: -R * 0.55 }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1);
+  { const s = sp(-R*0.15, -R*0.5);
+    addProp(createTongue(scene, s.x, s.z, -0.6), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1); }
+  { const s = sp(R*0.45, R*0.45);
+    addProp(createTongue(scene, s.x, s.z, 1.4), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1); }
+  { const s = sp(-R*0.6, -R*0.55);
+    addProp(createTongue(scene, s.x, s.z, 2.9), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1); }
 
   // ─── Severed hands (3) ───
-  const hd1 = createSeveredHand(scene, R * 0.4, R * 0.4, -0.5);
-  addProp(hd1, { x: R * 0.4, y: 0.05, z: R * 0.4 }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3);
-  const hd2 = createSeveredHand(scene, -R * 0.55, R * 0.45, 2.0);
-  addProp(hd2, { x: -R * 0.55, y: 0.05, z: R * 0.45 }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3);
-  const hd3 = createSeveredHand(scene, R * 0.2, -R * 0.55, -1.8);
-  addProp(hd3, { x: R * 0.2, y: 0.05, z: -R * 0.55 }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3);
+  { const s = sp(R*0.4, R*0.4);
+    addProp(createSeveredHand(scene, s.x, s.z, -0.5), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3); }
+  { const s = sp(-R*0.55, R*0.45);
+    addProp(createSeveredHand(scene, s.x, s.z, 2.0), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3); }
+  { const s = sp(R*0.2, -R*0.55);
+    addProp(createSeveredHand(scene, s.x, s.z, -1.8), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3); }
 
   // ─── Severed fingers (9) ───
   const fingerSpots = [
-    [R * 0.55, R * 0.1, 1.2], [-R * 0.3, R * 0.55, -0.8], [R * 0.15, -R * 0.45, 2.5],
-    [-R * 0.65, R * 0.2, 0.3], [R * 0.35, R * 0.6, -1.0], [-R * 0.1, -R * 0.65, 1.8],
-    [R * 0.65, -R * 0.3, -0.4], [-R * 0.45, -R * 0.35, 2.2], [R * 0.5, -R * 0.55, 0.7],
+    [R*0.55, R*0.1, 1.2], [-R*0.3, R*0.55, -0.8], [R*0.15, -R*0.45, 2.5],
+    [-R*0.65, R*0.2, 0.3], [R*0.35, R*0.6, -1.0], [-R*0.1, -R*0.65, 1.8],
+    [R*0.65, -R*0.3, -0.4], [-R*0.45, -R*0.35, 2.2], [R*0.5, -R*0.55, 0.7],
   ];
   for (const [fx, fz, fr] of fingerSpots) {
-    const f = createSeveredFinger(scene, fx, fz, fr);
-    addProp(f, { x: fx, y: 0.06, z: fz }, new CANNON.Cylinder(0.04, 0.04, 0.45, 6), 0.05);
+    const s = sp(fx, fz);
+    const f = createSeveredFinger(scene, s.x, s.z, fr);
+    addProp(f, { x: s.x, y: 0.06, z: s.z }, new CANNON.Cylinder(0.04, 0.04, 0.45, 6), 0.05);
   }
 
   // ─── Bone fragments (6) ───
   const boneSpots = [
-    [-R * 0.5, -R * 0.4, 0.6], [R * 0.6, -R * 0.15, -1.2],
-    [R * 0.3, -R * 0.6, 1.9], [-R * 0.65, -R * 0.1, -0.5],
-    [-R * 0.2, R * 0.6, 2.6], [R * 0.55, R * 0.55, 0.2],
+    [-R*0.5, -R*0.4, 0.6], [R*0.6, -R*0.15, -1.2],
+    [R*0.3, -R*0.6, 1.9], [-R*0.65, -R*0.1, -0.5],
+    [-R*0.2, R*0.6, 2.6], [R*0.55, R*0.55, 0.2],
   ];
   for (const [bx, bz, br] of boneSpots) {
-    const b = createBoneFragment(scene, bx, bz, br);
-    addProp(b, { x: bx, y: 0.04, z: bz }, new CANNON.Cylinder(0.04, 0.04, 0.5, 6), 0.1);
+    const s = sp(bx, bz);
+    const b = createBoneFragment(scene, s.x, s.z, br);
+    addProp(b, { x: s.x, y: 0.04, z: s.z }, new CANNON.Cylinder(0.04, 0.04, 0.5, 6), 0.1);
   }
 
   // ─── Physics-visual sync ───
