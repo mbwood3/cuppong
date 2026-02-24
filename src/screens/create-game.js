@@ -80,11 +80,49 @@ export function showCreateGame(container, { hostName, onGameCreated, onBack }) {
         return;
       }
 
-      onGameCreated({
-        gameCode: data.gameCode,
-        gameState: verifyData.gameState,
-        playerIndex: verifyData.playerIndex,
-        phone: players[0].phone,
+      // Show the game code + share link before entering
+      const shareUrl = `${window.location.origin}/play/${data.gameCode}`;
+      container.innerHTML = `
+        <div class="screen">
+          <h1>Cup Pong</h1>
+          <h2>Game Created!</h2>
+          <div style="font-size: 2rem; font-weight: 800; letter-spacing: 0.3em; color: #e74c7a; margin: 16px 0;">
+            ${data.gameCode}
+          </div>
+          <div style="font-size: 0.85rem; color: rgba(255,255,255,0.6); margin-bottom: 16px;">
+            Share this link with the other players:
+          </div>
+          <div style="background: rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; word-break: break-all; font-size: 0.9rem; color: #fff;">
+            ${shareUrl}
+          </div>
+          <button class="btn btn-secondary" id="btn-copy-link" style="margin-bottom: 16px;">Copy Link</button>
+          <button class="btn btn-primary" id="btn-start-game">Start Playing</button>
+        </div>
+      `;
+
+      document.getElementById('btn-copy-link').addEventListener('click', () => {
+        navigator.clipboard.writeText(shareUrl).then(() => {
+          document.getElementById('btn-copy-link').textContent = 'Copied!';
+          setTimeout(() => {
+            document.getElementById('btn-copy-link').textContent = 'Copy Link';
+          }, 2000);
+        }).catch(() => {
+          // Fallback: select the text
+          const range = document.createRange();
+          const linkDiv = document.getElementById('btn-copy-link').previousElementSibling;
+          range.selectNodeContents(linkDiv);
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(range);
+        });
+      });
+
+      document.getElementById('btn-start-game').addEventListener('click', () => {
+        onGameCreated({
+          gameCode: data.gameCode,
+          gameState: verifyData.gameState,
+          playerIndex: verifyData.playerIndex,
+          phone: players[0].phone,
+        });
       });
     } catch (err) {
       showError('Network error: ' + err.message);
