@@ -2,7 +2,7 @@ import { initScene, onAnimate, getScene, getCamera, getRenderer } from '../game/
 import { createTable } from '../game/table.js';
 import { createCups, removeCup, getCupWorldPosition, repositionCups } from '../game/cups.js';
 import { createBall, showBall, updateBallPosition, hideBall } from '../game/ball.js';
-import { initPhysics, launchBall, stepPhysics, disableCupTrigger, stopSimulation, rebuildCupColliders } from '../game/physics.js';
+import { initPhysics, launchBall, stepPhysics, disableCupTrigger, stopSimulation, rebuildCupColliders, getWorld, stepWorld } from '../game/physics.js';
 import { initThrowControls, enableThrow, disableThrow, getThrowStartPosition } from '../game/throw.js';
 import { initCameraController, setCameraOverhead, setCameraThrowView, setCameraSpectatorView, setCameraPlayerView, updateCamera } from '../game/camera-controller.js';
 import { initHitEffects, playCupHitEffect, updateHitEffects, cameraShake } from '../game/hit-effects.js';
@@ -18,6 +18,7 @@ const COLOR_HEX = PLAYER_COLORS.map(c => '#' + c.toString(16).padStart(6, '0'));
 let gameState = null;
 let myIndex = -1;
 let cupMeshes = null;
+let goreSystem = null;
 let overlay = null;
 let lastTime = 0;
 let isTestMode = false;
@@ -57,10 +58,10 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
 
   // Build the world
   createTable(scene);
-  addGoreProps(scene);
   cupMeshes = createCups(scene);
   createBall(scene);
   initPhysics();
+  goreSystem = addGoreProps(scene, getWorld(), showEyeballReaction);
   initThrowControls(renderer.domElement, scene);
   initCameraController(camera);
   initHitEffects(scene);
@@ -78,11 +79,17 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
     updateCamera(dt);
     updateHitEffects();
 
-    // Step physics if active
+    // Step physics world every frame (gore props need settling even when ball isn't active)
+    stepWorld();
+
+    // Check ball triggers if active
     const physResult = stepPhysics();
     if (physResult) {
       updateBallPosition(physResult.x, physResult.y, physResult.z);
     }
+
+    // Sync gore prop physics bodies to meshes
+    if (goreSystem) goreSystem.update();
   });
 
   // Listen for game events (only in multiplayer mode)
@@ -893,6 +900,47 @@ function showHitText() {
       el.style.transform = 'translate(-50%, -50%) scale(1.3)';
       setTimeout(() => el.remove(), 400);
     }, 800);
+  });
+}
+
+let eyeballCooldown = false;
+function showEyeballReaction() {
+  if (eyeballCooldown) return;
+  eyeballCooldown = true;
+  setTimeout(() => { eyeballCooldown = false; }, 3000);
+
+  const phrase = "I've got my EYE on you!";
+
+  // Creepy deep voice
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(phrase);
+    utter.rate = 0.8;
+    utter.pitch = 0.6;
+    utter.volume = 1;
+    window.speechSynthesis.resume();
+    window.speechSynthesis.speak(utter);
+  }
+  playHitChime();
+
+  const el = document.createElement('div');
+  el.textContent = phrase;
+  el.style.cssText = `
+    position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%) scale(0.5);
+    font-size: 2.5rem; font-weight: 900; color: #ffdddd;
+    text-shadow: 0 0 20px rgba(139,0,0,0.9), 0 0 40px rgba(74,0,0,0.5);
+    z-index: 30; pointer-events: none; opacity: 0;
+    transition: transform 0.3s cubic-bezier(0.2, 1.5, 0.4, 1), opacity 0.3s ease-out;
+  `;
+  overlay.appendChild(el);
+  requestAnimationFrame(() => {
+    el.style.opacity = '1';
+    el.style.transform = 'translate(-50%, -50%) scale(1)';
+    setTimeout(() => {
+      el.style.opacity = '0';
+      el.style.transform = 'translate(-50%, -50%) scale(1.3)';
+      setTimeout(() => el.remove(), 400);
+    }, 1200);
   });
 }
 

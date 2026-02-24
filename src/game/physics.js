@@ -60,6 +60,7 @@ export function initPhysics() {
   ballMaterial = new CANNON.Material({ friction: BALL_FRICTION, restitution: BALL_RESTITUTION });
   ballBody = new CANNON.Body({ mass: BALL_MASS, shape: ballShape, material: ballMaterial });
   ballBody.linearDamping = 0.01;
+  ballBody.isBall = true;
   world.addBody(ballBody);
 
   // Rim material — slightly bouncy so ball deflects off cup edges
@@ -174,8 +175,6 @@ export function launchBall(startPos, velocity, activeCups, onHit, onMiss) {
 
 export function stepPhysics() {
   if (!world || !isSimulating) return null;
-
-  world.step(1 / 60);
 
   const ballPos = ballBody.position;
   const ballVel = ballBody.velocity;
@@ -304,4 +303,16 @@ export function isPhysicsRunning() {
 export function stopSimulation() {
   isSimulating = false;
   clearTimeout(simulationTimeout);
+}
+
+export function getWorld() {
+  return world;
+}
+
+export function getBallMaterial() {
+  return ballMaterial;
+}
+
+export function stepWorld() {
+  if (world) world.step(1 / 60);
 }
