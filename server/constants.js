@@ -5,3 +5,5 @@ export const MAX_PLAYERS = 3;
 export const ROOM_CODE_LENGTH = 4;
 export const ROOM_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 export const RECONNECT_TIMEOUT_MS = 30 * 1000; // 30 seconds
+export const RERACKS_PER_PLAYER = 2;
+export const CUP_TOP_RADIUS = 0.13;

@@ -1,4 +1,4 @@
-import { CUPS_PER_PLAYER, THROWS_PER_TURN } from './constants.js';
+import { CUPS_PER_PLAYER, THROWS_PER_TURN, RERACKS_PER_PLAYER } from './constants.js';
 
 export function createGameState(players) {
   return {
@@ -8,6 +8,8 @@ export function createGameState(players) {
       index: i,
       cups: new Array(CUPS_PER_PLAYER).fill(true), // true = standing
       eliminated: false,
+      reracksRemaining: RERACKS_PER_PLAYER,
+      cupPositions: null, // null = use default positions; array of {x, z} when reracked
     })),
     currentTurnIndex: 0,
     currentTarget: null,
@@ -121,6 +123,8 @@ export function getPublicGameState(gameState) {
       index: p.index,
       cups: [...p.cups],
       eliminated: p.eliminated,
+      reracksRemaining: p.reracksRemaining,
+      cupPositions: p.cupPositions ? [...p.cupPositions] : null,
     })),
     currentTurnIndex: gameState.currentTurnIndex,
     currentTarget: gameState.currentTarget,

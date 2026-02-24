@@ -2,6 +2,7 @@
 export const CUPS_PER_PLAYER = 15;
 export const THROWS_PER_TURN = 2;
 export const MAX_PLAYERS = 3;
+export const RERACKS_PER_PLAYER = 2;
 
 // Cup layout: 5-4-3-2-1 triangle (15 cups)
 // Row 0 (front, closest to center): 1 cup
@@ -12,17 +13,17 @@ export const MAX_PLAYERS = 3;
 export const CUP_ROWS = [1, 2, 3, 4, 5];
 
 // Table dimensions
-export const TABLE_RADIUS = 3.0;
+export const TABLE_RADIUS = 8.0;
 export const TABLE_HEIGHT = 0.05;
 
-// Cup dimensions (meters, roughly a solo cup)
-export const CUP_TOP_RADIUS = 0.045;
-export const CUP_BOTTOM_RADIUS = 0.03;
-export const CUP_HEIGHT = 0.12;
-export const CUP_SPACING = 0.1; // distance between cup centers
+// Cup dimensions (scaled up ~3x from realistic for visibility)
+export const CUP_TOP_RADIUS = 0.13;
+export const CUP_BOTTOM_RADIUS = 0.09;
+export const CUP_HEIGHT = 0.32;
+export const CUP_SPACING = 0.28; // distance between cup centers
 
-// Ball dimensions
-export const BALL_RADIUS = 0.02;
+// Ball dimensions (scaled up for visibility)
+export const BALL_RADIUS = 0.06;
 export const BALL_MASS = 0.0027; // ping pong ball mass in kg
 
 // Physics
@@ -33,11 +34,11 @@ export const BALL_FRICTION = 0.3;
 // Throw mechanics
 export const MIN_SWIPE_DISTANCE = 30; // pixels
 export const MAX_SWIPE_TIME = 600; // ms
-export const HORIZONTAL_SCALE = 0.008;
-export const FORWARD_SCALE = 0.015;
-export const ARC_SCALE = 0.006;
-export const MIN_THROW_SPEED = 2;
-export const MAX_THROW_SPEED = 12;
+export const HORIZONTAL_SCALE = 0.003;
+export const FORWARD_SCALE = 0.006;
+export const ARC_SCALE = 0.0066;
+export const MIN_THROW_SPEED = 1.99;
+export const MAX_THROW_SPEED = 8.75;
 
 // Player colors (brighter for visibility on green table)
 export const PLAYER_COLORS = [
@@ -49,7 +50,7 @@ export const PLAYER_COLORS = [
 export const PLAYER_COLOR_NAMES = ['Red', 'Blue', 'Green'];
 
 // Camera positions
-export const CAMERA_OVERHEAD = { x: 0, y: 5, z: 0 };
+export const CAMERA_OVERHEAD = { x: 0, y: 12, z: 0 };
 export const CAMERA_FOV = 50;
 
 // Player base positions around the table (120 degrees apart)
@@ -60,4 +61,4 @@ export const PLAYER_ANGLES = [
   Math.PI / 2 + (4 * Math.PI / 3),   // Player 2: bottom-right
 ];
 
-export const PLAYER_DISTANCE = 2.0; // Distance from center to player's cup base
+export const PLAYER_DISTANCE = 5.5; // Distance from center to player's cup base
