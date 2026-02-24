@@ -1,13 +1,16 @@
 import { initScene, onAnimate, getScene, getCamera, getRenderer } from '../game/scene.js';
 import { createTable } from '../game/table.js';
-import { createCups, removeCup } from '../game/cups.js';
+import { createCups, removeCup, getCupWorldPosition, repositionCups } from '../game/cups.js';
 import { createBall, showBall, updateBallPosition, hideBall } from '../game/ball.js';
-import { initPhysics, launchBall, stepPhysics, disableCupTrigger, stopSimulation } from '../game/physics.js';
+import { initPhysics, launchBall, stepPhysics, disableCupTrigger, stopSimulation, rebuildCupColliders } from '../game/physics.js';
 import { initThrowControls, enableThrow, disableThrow, getThrowStartPosition } from '../game/throw.js';
-import { initCameraController, setCameraOverhead, setCameraThrowView, setCameraSpectatorView, updateCamera } from '../game/camera-controller.js';
+import { initCameraController, setCameraOverhead, setCameraThrowView, setCameraSpectatorView, setCameraPlayerView, updateCamera } from '../game/camera-controller.js';
+import { initHitEffects, playCupHitEffect, updateHitEffects, cameraShake } from '../game/hit-effects.js';
 import { emit, on, off } from '../network/socket.js';
 import { EVENTS } from '../network/events.js';
-import { PLAYER_COLORS, PLAYER_COLOR_NAMES, CUPS_PER_PLAYER } from '../shared/constants.js';
+import { PLAYER_COLORS, PLAYER_COLOR_NAMES, CUPS_PER_PLAYER, THROWS_PER_TURN, PLAYER_ANGLES, PLAYER_DISTANCE } from '../shared/constants.js';
+import { getCupTriangleCenter } from '../game/cups.js';
+import { getAvailablePresets } from '../game/rerack-presets.js';
 
 const COLOR_HEX = PLAYER_COLORS.map(c => '#' + c.toString(16).padStart(6, '0'));
 
@@ -16,11 +19,32 @@ let myIndex = -1;
 let cupMeshes = null;
 let overlay = null;
 let lastTime = 0;
+let isTestMode = false;
+let isFreeplay = false;
+
+// On-screen debug for mobile
+let _dbg = null;
+function dbg(msg) {
+  console.log('[DBG]', msg);
+  if (!_dbg) {
+    _dbg = document.createElement('div');
+    _dbg.style.cssText = 'position:fixed;top:50px;left:4px;right:4px;z-index:99999;background:rgba(0,0,0,0.9);color:lime;font:11px monospace;padding:6px 8px;max-height:180px;overflow-y:auto;pointer-events:none;border:1px solid lime;border-radius:6px;white-space:pre-wrap;';
+    document.body.appendChild(_dbg);
+  }
+  _dbg.textContent = msg + '\n' + (_dbg.textContent || '').split('\n').slice(0, 20).join('\n');
+}
+window._dbg = dbg; // make available globally
 
 export function startGame(canvasContainer, uiOverlay, initialGameState, playerIndex) {
   gameState = initialGameState;
   myIndex = playerIndex;
   overlay = uiOverlay;
+  isTestMode = new URLSearchParams(window.location.search).has('test');
+  isFreeplay = !!window.__freeplay;
+
+  dbg('GAME STARTED v2 myIdx=' + myIndex + ' myId=' + window.__socketId + ' freeplay=' + isFreeplay);
+  dbg('players: ' + initialGameState.players.map(p => p.name + '(id=' + p.id.slice(-4) + ')').join(', '));
+  dbg('turn=' + initialGameState.currentTurnIndex + ' phase=' + initialGameState.turnPhase);
 
   // Hide screen container, show game
   document.getElementById('screen-container').classList.add('hidden');
@@ -35,9 +59,10 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
   initPhysics();
   initThrowControls(renderer.domElement, scene);
   initCameraController(camera);
+  initHitEffects(scene);
 
-  // Start with overhead view
-  setCameraOverhead();
+  // Start with player's behind-view (Game Pigeon style)
+  setCameraPlayerView(myIndex);
 
   // Animation loop
   lastTime = performance.now();
@@ -47,23 +72,22 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
     lastTime = now;
 
     updateCamera(dt);
+    updateHitEffects();
 
     // Step physics if active
     const physResult = stepPhysics();
     if (physResult) {
       updateBallPosition(physResult.x, physResult.y, physResult.z);
-
-      if (physResult.done) {
-        // Ball finished - handle locally, then report to server
-        // (handled by callbacks in launchBall)
-      }
     }
   });
 
-  // Listen for game events
-  on(EVENTS.TARGET_SELECTED, onTargetSelected);
-  on(EVENTS.BALL_THROWN, onBallThrown);
-  on(EVENTS.THROW_RESOLVED, onThrowResolved);
+  // Listen for game events (only in multiplayer mode)
+  if (!isTestMode && !isFreeplay) {
+    on(EVENTS.TARGET_SELECTED, onTargetSelected);
+    on(EVENTS.BALL_THROWN, onBallThrown);
+    on(EVENTS.THROW_RESOLVED, onThrowResolved);
+    on(EVENTS.CUPS_RERACKED, onCupsReracked);
+  }
 
   // Initial UI update
   updateUI();
@@ -111,14 +135,20 @@ function updateUI() {
 }
 
 function getMyId() {
-  const socket = import.meta.hot ? null : null;
-  // Get socket id from the network module
   return window.__socketId;
 }
 
 function handleTurnPhase() {
   const currentPlayer = gameState.players[gameState.currentTurnIndex];
+
+  // In freeplay, we control all players — switch identity to current player
+  if (isFreeplay) {
+    myIndex = gameState.currentTurnIndex;
+    window.__socketId = currentPlayer.id;
+  }
+
   const isMyTurn = currentPlayer.id === getMyId();
+  dbg('handleTurnPhase phase=' + gameState.turnPhase + ' isMyTurn=' + isMyTurn + ' myId=' + (getMyId()||'').slice(-4) + ' curId=' + (currentPlayer.id||'').slice(-4));
 
   if (gameState.status === 'finished') {
     showGameOver();
@@ -128,16 +158,18 @@ function handleTurnPhase() {
   if (gameState.turnPhase === 'selecting') {
     if (isMyTurn) {
       showTargetSelector();
-      setCameraOverhead();
+      setCameraPlayerView(myIndex);
     } else {
-      setCameraOverhead();
+      setCameraPlayerView(myIndex);
       disableThrow();
     }
   } else if (gameState.turnPhase === 'throwing') {
+    dbg('THROWING phase isMyTurn=' + isMyTurn);
     if (isMyTurn) {
       // Show throw view and enable swipe
       setCameraThrowView(gameState.currentTurnIndex, gameState.currentTarget);
       setTimeout(() => {
+        dbg('Enabling throw after 600ms delay');
         showSwipeHint();
         enableThrow((velocity) => {
           onMyThrow(velocity);
@@ -147,10 +179,22 @@ function handleTurnPhase() {
       setCameraSpectatorView(gameState.currentTurnIndex, gameState.currentTarget);
       disableThrow();
     }
+  } else if (gameState.turnPhase === 'reracking') {
+    if (isMyTurn) {
+      showRerackUI(gameState.currentTarget);
+    } else {
+      // Other players: just show "Player is reracking" message
+      setCameraOverhead();
+      disableThrow();
+    }
   }
 }
 
 function showTargetSelector() {
+  // Remove existing selector if present
+  const existing = overlay.querySelector('.target-selector');
+  if (existing) existing.remove();
+
   const opponents = gameState.players.filter((p, i) =>
     i !== myIndex && !p.eliminated
   );
@@ -178,9 +222,22 @@ function showTargetSelector() {
       const targetIndex = parseInt(btn.dataset.target);
       selector.remove();
 
-      const response = await emit(EVENTS.SELECT_TARGET, targetIndex);
-      if (response.error) {
-        console.error('Select target error:', response.error);
+      if (isTestMode || isFreeplay) {
+        // Handle locally in test/freeplay mode
+        gameState.currentTarget = targetIndex;
+        const currentPlayer = gameState.players[gameState.currentTurnIndex];
+        if (currentPlayer.reracksRemaining > 0) {
+          gameState.turnPhase = 'reracking';
+        } else {
+          gameState.turnPhase = 'throwing';
+        }
+        updateUI();
+        handleTurnPhase();
+      } else {
+        const response = await emit(EVENTS.SELECT_TARGET, targetIndex);
+        if (response.error) {
+          console.error('Select target error:', response.error);
+        }
       }
     });
   });
@@ -205,6 +262,9 @@ async function onMyThrow(velocity) {
   disableThrow();
   hideSwipeHint();
 
+  // Unlock audio context during user gesture (iOS Safari requires this)
+  unlockAudio();
+
   // Show ball at throw start position
   const startPos = getThrowStartPosition(gameState.currentTurnIndex, gameState.currentTarget);
   showBall(startPos.x, startPos.y, startPos.z);
@@ -216,62 +276,285 @@ async function onMyThrow(velocity) {
     gameState.currentTarget
   );
 
-  // Send throw to server (broadcast to other players)
-  await emit(EVENTS.THROW_BALL, transformedVelocity);
+  if (isTestMode || isFreeplay) {
+    // In test/freeplay mode, run physics locally and handle result directly
+    launchBall(
+      startPos,
+      transformedVelocity,
+      null,
+      // On hit
+      (playerIndex, cupIndex) => {
+        handleTestThrowResult(true, playerIndex, cupIndex);
+      },
+      // On miss
+      () => {
+        handleTestThrowResult(false, null, null);
+      }
+    );
+  } else {
+    // Send throw to server (broadcast to other players)
+    await emit(EVENTS.THROW_BALL, transformedVelocity);
 
-  // Run physics locally
-  launchBall(
-    startPos,
-    transformedVelocity,
-    null,
-    // On hit
-    (playerIndex, cupIndex) => {
-      // Report hit to server
-      emit(EVENTS.THROW_RESULT, { hit: true, cupIndex, targetIndex: playerIndex });
-    },
-    // On miss
-    () => {
-      emit(EVENTS.THROW_RESULT, { hit: false, cupIndex: null, targetIndex: null });
+    // Run physics locally
+    launchBall(
+      startPos,
+      transformedVelocity,
+      null,
+      // On hit
+      (playerIndex, cupIndex) => {
+        emit(EVENTS.THROW_RESULT, { hit: true, cupIndex, targetIndex: playerIndex });
+      },
+      // On miss
+      () => {
+        emit(EVENTS.THROW_RESULT, { hit: false, cupIndex: null, targetIndex: null });
+      }
+    );
+  }
+}
+
+function handleTestThrowResult(hit, targetPlayerIndex, cupIndex) {
+  // Resolve throw locally in test mode (mirrors server game-logic.js)
+  const result = { hit: false, cupIndex: null, ballsBack: false, gameOver: false, winnerId: null };
+
+  if (hit && cupIndex != null && targetPlayerIndex != null) {
+    const target = gameState.players[targetPlayerIndex];
+    if (target && target.cups[cupIndex]) {
+      target.cups[cupIndex] = false;
+      result.hit = true;
+      result.cupIndex = cupIndex;
+      gameState.hitsThisTurn++;
+
+      // Remove cup visually + play hit effects
+      const cupPos = getCupWorldPosition(targetPlayerIndex, cupIndex);
+      removeCup(cupMeshes, getScene(), targetPlayerIndex, cupIndex);
+      disableCupTrigger(targetPlayerIndex, cupIndex);
+      flashScreen(COLOR_HEX[gameState.currentTurnIndex]);
+      showHitText();
+      if (cupPos) {
+        playCupHitEffect(cupPos.x, cupPos.y, cupPos.z, PLAYER_COLORS[targetPlayerIndex]);
+        cameraShake(getCamera());
+      }
+
+      // Check elimination
+      if (target.cups.every(c => !c)) {
+        target.eliminated = true;
+        const remaining = gameState.players.filter(p => !p.eliminated);
+        if (remaining.length === 1) {
+          gameState.winnerId = remaining[0].id;
+          gameState.status = 'finished';
+          result.gameOver = true;
+          result.winnerId = remaining[0].id;
+        }
+      }
     }
-  );
+  }
+
+  gameState.throwNumber++;
+
+  if (result.gameOver) {
+    setTimeout(() => {
+      hideBall();
+      updateUI();
+      showGameOver();
+    }, 800);
+    return;
+  }
+
+  if (gameState.throwNumber >= THROWS_PER_TURN) {
+    if (gameState.hitsThisTurn >= THROWS_PER_TURN) {
+      // Balls back
+      gameState.throwNumber = 0;
+      gameState.hitsThisTurn = 0;
+      gameState.turnPhase = 'selecting';
+      gameState.currentTarget = null;
+      setTimeout(() => {
+        hideBall();
+        showBallsBack();
+        setTimeout(() => {
+          updateUI();
+          handleTurnPhase();
+        }, 1500);
+      }, 800);
+    } else {
+      // Turn over — advance to next player
+      gameState.throwNumber = 0;
+      gameState.hitsThisTurn = 0;
+      gameState.currentTarget = null;
+      gameState.turnPhase = 'selecting';
+      // Advance turn to next non-eliminated player
+      let nextIndex = (gameState.currentTurnIndex + 1) % gameState.players.length;
+      while (gameState.players[nextIndex].eliminated) {
+        nextIndex = (nextIndex + 1) % gameState.players.length;
+      }
+      gameState.currentTurnIndex = nextIndex;
+      setTimeout(() => {
+        hideBall();
+        updateUI();
+        handleTurnPhase();
+      }, 800);
+    }
+  } else {
+    // Still have throws left
+    gameState.turnPhase = 'selecting';
+    gameState.currentTarget = null;
+    setTimeout(() => {
+      hideBall();
+      updateUI();
+      handleTurnPhase();
+    }, 800);
+  }
 }
 
 function transformVelocityForDirection(velocity, throwerIndex, targetIndex) {
-  // The swipe gives velocity relative to screen (up = forward)
-  // We need to rotate it to point from thrower toward target
-  const angles = [
-    Math.PI / 2,
-    Math.PI / 2 + (2 * Math.PI / 3),
-    Math.PI / 2 + (4 * Math.PI / 3),
-  ];
+  // The camera is on the TARGET's radial axis (see camera-controller.js).
+  // "Swipe up" on screen = forward = along the target's axis TOWARD the target cups.
+  // The target's axis: from target player through center (towardCenter direction).
+  // Camera looks in the OPPOSITE direction (from beyond center back toward cups),
+  // so "forward" from camera's perspective = NEGATIVE towardCenter = toward the target cups.
+  const targetAngle = PLAYER_ANGLES[targetIndex];
 
-  const throwerAngle = angles[throwerIndex];
-  const targetAngle = angles[targetIndex];
+  // towardCenter = direction from target player toward table center (triangle tip direction)
+  const towardCenterX = -Math.cos(targetAngle);
+  const towardCenterZ = Math.sin(targetAngle);
 
-  const fromX = Math.cos(throwerAngle) * 2.0;
-  const fromZ = -Math.sin(throwerAngle) * 2.0;
-  const toX = Math.cos(targetAngle) * 2.0;
-  const toZ = -Math.sin(targetAngle) * 2.0;
-
-  const dx = toX - fromX;
-  const dz = toZ - fromZ;
-  const dist = Math.sqrt(dx * dx + dz * dz);
-  const dirX = dx / dist;
-  const dirZ = dz / dist;
-
-  // Forward component (from swipe up/down mapped to dy)
-  const forwardSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+  // "Forward" from the camera = toward the target cups = opposite of towardCenter
+  // (camera is past center looking back at cups)
+  const forwardX = -towardCenterX;
+  const forwardZ = -towardCenterZ;
 
   // Perpendicular for left/right aiming
-  const perpX = -dirZ;
-  const perpZ = dirX;
+  const perpX = -forwardZ;
+  const perpZ = forwardX;
 
   // Map: velocity.z is the forward component (swipe up = negative screen Y = forward)
   // velocity.x is the lateral component
-  const worldVx = dirX * (-velocity.z) + perpX * velocity.x;
-  const worldVz = dirZ * (-velocity.z) + perpZ * velocity.x;
+  const worldVx = forwardX * (-velocity.z) + perpX * velocity.x;
+  const worldVz = forwardZ * (-velocity.z) + perpZ * velocity.x;
 
   return { x: worldVx, y: velocity.y, z: worldVz };
+}
+
+function transformLocalToWorld(localPositions, playerIndex) {
+  const center = getCupTriangleCenter(playerIndex);
+  const angle = PLAYER_ANGLES[playerIndex];
+
+  // towardCenter direction (triangle tip points this way)
+  const towardCenterX = -Math.cos(angle);
+  const towardCenterZ = Math.sin(angle);
+
+  // Perpendicular direction
+  const perpX = -towardCenterZ;
+  const perpZ = towardCenterX;
+
+  return localPositions.map(pos => ({
+    x: center.x + perpX * pos.x + towardCenterX * pos.z,
+    z: center.z + perpZ * pos.x + towardCenterZ * pos.z,
+  }));
+}
+
+function showRerackUI(targetIndex) {
+  const target = gameState.players[targetIndex];
+  const activeCupCount = target.cups.filter(c => c).length;
+  const presets = getAvailablePresets(activeCupCount);
+
+  // Switch to overhead view centered on target's cups
+  setCameraOverhead();
+
+  // Track current positions for confirm
+  let currentPositions = null;
+
+  // Remove any existing rerack UI
+  const existingUI = overlay.querySelector('.rerack-ui');
+  if (existingUI) existingUI.remove();
+
+  const rerackDiv = document.createElement('div');
+  rerackDiv.className = 'rerack-ui';
+  rerackDiv.style.cssText = `
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    z-index: 20; pointer-events: auto;
+  `;
+
+  // Label
+  const label = document.createElement('div');
+  label.textContent = `Rerack ${target.name}'s cups`;
+  label.style.cssText = 'color: #fff; font-size: 1.2rem; font-weight: 700; text-shadow: 0 1px 4px rgba(0,0,0,0.7);';
+  rerackDiv.appendChild(label);
+
+  // Preset buttons row
+  const presetsRow = document.createElement('div');
+  presetsRow.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;';
+
+  for (const preset of presets) {
+    const btn = document.createElement('button');
+    btn.textContent = preset.name;
+    btn.className = 'btn btn-target';
+    btn.style.cssText = 'padding: 8px 16px; font-size: 0.9rem; min-width: 80px;';
+    btn.addEventListener('click', () => {
+      // Generate positions from preset, transform to world space
+      const localPositions = preset.fn(activeCupCount);
+      const worldPositions = transformLocalToWorld(localPositions, targetIndex);
+      currentPositions = worldPositions;
+
+      // Animate cups to new positions
+      repositionCups(cupMeshes, getScene(), targetIndex, worldPositions);
+      rebuildCupColliders(targetIndex, worldPositions);
+
+      // Show confirm button
+      confirmBtn.style.display = 'inline-block';
+    });
+    presetsRow.appendChild(btn);
+  }
+  rerackDiv.appendChild(presetsRow);
+
+  // Action buttons
+  const actionRow = document.createElement('div');
+  actionRow.style.cssText = 'display: flex; gap: 12px;';
+
+  const confirmBtn = document.createElement('button');
+  confirmBtn.textContent = 'Confirm';
+  confirmBtn.className = 'btn btn-primary';
+  confirmBtn.style.cssText = 'padding: 10px 24px; display: none;';
+  confirmBtn.addEventListener('click', async () => {
+    rerackDiv.remove();
+
+    if (isTestMode || isFreeplay) {
+      // Apply locally
+      const currentPlayer = gameState.players[gameState.currentTurnIndex];
+      target.cupPositions = currentPositions;
+      currentPlayer.reracksRemaining--;
+      gameState.turnPhase = 'throwing';
+      updateUI();
+      handleTurnPhase();
+    } else {
+      // Send to server
+      await emit(EVENTS.RERACK_CUPS, {
+        targetIndex,
+        positions: currentPositions,
+      });
+    }
+  });
+  actionRow.appendChild(confirmBtn);
+
+  const skipBtn = document.createElement('button');
+  skipBtn.textContent = 'Skip';
+  skipBtn.className = 'btn';
+  skipBtn.style.cssText = 'padding: 10px 24px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: #fff;';
+  skipBtn.addEventListener('click', async () => {
+    rerackDiv.remove();
+
+    if (isTestMode || isFreeplay) {
+      gameState.turnPhase = 'throwing';
+      updateUI();
+      handleTurnPhase();
+    } else {
+      await emit(EVENTS.SKIP_RERACK);
+    }
+  });
+  actionRow.appendChild(skipBtn);
+
+  rerackDiv.appendChild(actionRow);
+  overlay.appendChild(rerackDiv);
 }
 
 // Event handlers for other players' actions
@@ -304,12 +587,16 @@ function onThrowResolved(data) {
   gameState = data.gameState;
 
   if (data.hit) {
-    // Remove cup visually
+    // Remove cup visually + play hit effects
+    const cupPos = getCupWorldPosition(data.targetIndex, data.cupIndex);
     removeCup(cupMeshes, getScene(), data.targetIndex, data.cupIndex);
     disableCupTrigger(data.targetIndex, data.cupIndex);
-
-    // Flash effect
     flashScreen(COLOR_HEX[gameState.currentTurnIndex]);
+    showHitText();
+    if (cupPos) {
+      playCupHitEffect(cupPos.x, cupPos.y, cupPos.z, PLAYER_COLORS[data.targetIndex]);
+      cameraShake(getCamera());
+    }
   }
 
   // Hide ball after a short delay
@@ -335,6 +622,101 @@ function onThrowResolved(data) {
       handleTurnPhase();
     }
   }, 800);
+}
+
+function onCupsReracked(data) {
+  gameState = data.gameState;
+
+  if (data.positions) {
+    // Cups were repositioned
+    repositionCups(cupMeshes, getScene(), data.targetIndex, data.positions);
+    rebuildCupColliders(data.targetIndex, data.positions);
+  }
+
+  // Remove rerack UI if present
+  const rerackUI = overlay.querySelector('.rerack-ui');
+  if (rerackUI) rerackUI.remove();
+
+  updateUI();
+  handleTurnPhase();
+}
+
+const HIT_PHRASES = [
+  'NAUGHTY BOY!',
+];
+
+// --- Audio system using Web Audio API (works on iOS Safari) ---
+let audioCtx = null;
+
+function unlockAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+}
+
+function speakPhrase(text) {
+  // Primary: use speechSynthesis (works on desktop, Android)
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.1;
+    utter.pitch = 1.2;
+    utter.volume = 1;
+    window.speechSynthesis.resume();
+    window.speechSynthesis.speak(utter);
+  }
+
+  // Fallback: always play a "hit" chime via Web Audio (guaranteed on iOS)
+  playHitChime();
+}
+
+function playHitChime() {
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  const now = audioCtx.currentTime;
+
+  // Two-tone chime: rising notes for a satisfying "ding-ding!"
+  const notes = [880, 1174.66]; // A5, D6
+  notes.forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.3, now + i * 0.12);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.3);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(now + i * 0.12);
+    osc.stop(now + i * 0.12 + 0.35);
+  });
+}
+
+function showHitText() {
+  const phrase = HIT_PHRASES[Math.floor(Math.random() * HIT_PHRASES.length)];
+  speakPhrase(phrase);
+
+  const el = document.createElement('div');
+  el.textContent = phrase;
+  el.style.cssText = `
+    position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%) scale(0.5);
+    font-size: 3rem; font-weight: 900; color: #fff; text-shadow: 0 0 20px rgba(255,100,50,0.9), 0 0 40px rgba(255,50,0,0.5);
+    z-index: 30; pointer-events: none; opacity: 0;
+    transition: transform 0.3s cubic-bezier(0.2, 1.5, 0.4, 1), opacity 0.3s ease-out;
+  `;
+  overlay.appendChild(el);
+  requestAnimationFrame(() => {
+    el.style.opacity = '1';
+    el.style.transform = 'translate(-50%, -50%) scale(1)';
+    setTimeout(() => {
+      el.style.opacity = '0';
+      el.style.transform = 'translate(-50%, -50%) scale(1.3)';
+      setTimeout(() => el.remove(), 400);
+    }, 800);
+  });
 }
 
 function flashScreen(color) {
