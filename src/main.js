@@ -81,6 +81,15 @@ if (new URLSearchParams(window.location.search).has('test')) {
           },
         });
       },
+      onAsyncRejoin: ({ gameCode, gameState, playerIndex, phone }) => {
+        window.__socketId = phone;
+        window.__asyncMode = true;
+        screenContainer.classList.add('hidden');
+        startGame(canvasContainer, uiOverlay, gameState, playerIndex, {
+          gameCode,
+          phone,
+        });
+      },
     });
   }
 }

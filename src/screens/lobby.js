@@ -2,7 +2,7 @@ import { emit, setCurrentRoom } from '../network/socket.js';
 import { EVENTS } from '../network/events.js';
 import { PLAYER_COLORS, CUPS_PER_PLAYER, RERACKS_PER_PLAYER } from '../shared/constants.js';
 
-export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, prefillCode }) {
+export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, onAsyncRejoin, prefillCode }) {
   const isJoining = !!prefillCode;
 
   container.innerHTML = `
@@ -16,11 +16,18 @@ export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, pr
           <button class="btn btn-secondary" id="btn-join-toggle">Join Room</button>
           <button class="btn btn-secondary" id="btn-freeplay" style="margin-top: 16px; border-color: rgba(255,255,255,0.1);">Practice (Freeplay)</button>
           <button class="btn btn-secondary" id="btn-async" style="margin-top: 8px; border-color: rgba(255,255,255,0.1);">Send Async Game</button>
+          <button class="btn btn-secondary" id="btn-rejoin-toggle" style="margin-top: 8px; border-color: rgba(255,255,255,0.1);">Rejoin Async Game</button>
         </div>
         <div id="join-section" class="${isJoining ? '' : 'hidden'}">
           <input class="input" id="room-code-input" placeholder="Room code" maxlength="4"
             value="${prefillCode || ''}" autocomplete="off" style="text-transform: uppercase; letter-spacing: 0.2em; font-size: 1.4rem;" />
           <button class="btn btn-primary" id="btn-join">Join</button>
+        </div>
+        <div id="rejoin-section" class="hidden">
+          <input class="input" id="rejoin-code" placeholder="Game code" maxlength="4"
+            autocomplete="off" style="text-transform: uppercase; letter-spacing: 0.2em; font-size: 1.4rem;" />
+          <input class="input" id="rejoin-phone" placeholder="Your phone number" type="tel" autocomplete="off" />
+          <button class="btn btn-primary" id="btn-rejoin">Rejoin</button>
         </div>
         <div class="error-msg hidden" id="error-msg"></div>
       </div>
@@ -98,8 +105,18 @@ export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, pr
 
   joinToggle.addEventListener('click', () => {
     joinSection.classList.toggle('hidden');
+    document.getElementById('rejoin-section').classList.add('hidden');
     if (!joinSection.classList.contains('hidden')) {
       codeInput.focus();
+    }
+  });
+
+  document.getElementById('btn-rejoin-toggle').addEventListener('click', () => {
+    const rejoinSection = document.getElementById('rejoin-section');
+    rejoinSection.classList.toggle('hidden');
+    joinSection.classList.add('hidden');
+    if (!rejoinSection.classList.contains('hidden')) {
+      document.getElementById('rejoin-code').focus();
     }
   });
 
@@ -120,5 +137,26 @@ export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, pr
       isHost: false,
       yourName: name,
     });
+  });
+
+  document.getElementById('btn-rejoin').addEventListener('click', async () => {
+    const code = document.getElementById('rejoin-code').value.trim().toUpperCase();
+    const phone = document.getElementById('rejoin-phone').value.trim();
+    if (code.length !== 4) return showError('Enter a 4-letter game code');
+    if (!phone) return showError('Enter your phone number');
+
+    try {
+      const res = await fetch(`/api/game/${code}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json();
+      if (data.error) return showError(data.error);
+
+      onAsyncRejoin({ gameCode: code, gameState: data.gameState, playerIndex: data.playerIndex, phone });
+    } catch (err) {
+      showError('Network error: ' + err.message);
+    }
   });
 }
