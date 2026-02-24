@@ -34,18 +34,6 @@ async function submitAsyncAction(action) {
   return response.json();
 }
 
-// On-screen debug for mobile
-let _dbg = null;
-function dbg(msg) {
-  console.log('[DBG]', msg);
-  if (!_dbg) {
-    _dbg = document.createElement('div');
-    _dbg.style.cssText = 'position:fixed;top:50px;left:4px;right:4px;z-index:99999;background:rgba(0,0,0,0.9);color:lime;font:11px monospace;padding:6px 8px;max-height:180px;overflow-y:auto;pointer-events:none;border:1px solid lime;border-radius:6px;white-space:pre-wrap;';
-    document.body.appendChild(_dbg);
-  }
-  _dbg.textContent = msg + '\n' + (_dbg.textContent || '').split('\n').slice(0, 20).join('\n');
-}
-window._dbg = dbg; // make available globally
 
 export function startGame(canvasContainer, uiOverlay, initialGameState, playerIndex, asyncConfig) {
   gameState = initialGameState;
@@ -59,10 +47,6 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
     asyncGameCode = asyncConfig.gameCode;
     asyncPhone = asyncConfig.phone;
   }
-
-  dbg('GAME STARTED v2 myIdx=' + myIndex + ' myId=' + window.__socketId + ' freeplay=' + isFreeplay);
-  dbg('players: ' + initialGameState.players.map(p => p.name + '(id=' + p.id.slice(-4) + ')').join(', '));
-  dbg('turn=' + initialGameState.currentTurnIndex + ' phase=' + initialGameState.turnPhase);
 
   // Hide screen container, show game
   document.getElementById('screen-container').classList.add('hidden');
@@ -171,7 +155,6 @@ function handleTurnPhase() {
   }
 
   const isMyTurn = currentPlayer.id === getMyId();
-  dbg('handleTurnPhase phase=' + gameState.turnPhase + ' isMyTurn=' + isMyTurn + ' myId=' + (getMyId()||'').slice(-4) + ' curId=' + (currentPlayer.id||'').slice(-4));
 
   if (gameState.status === 'finished') {
     showGameOver();
@@ -191,12 +174,10 @@ function handleTurnPhase() {
       disableThrow();
     }
   } else if (gameState.turnPhase === 'throwing') {
-    dbg('THROWING phase isMyTurn=' + isMyTurn);
     if (isMyTurn) {
       // Show throw view and enable swipe
       setCameraThrowView(gameState.currentTurnIndex, gameState.currentTarget);
       setTimeout(() => {
-        dbg('Enabling throw after 600ms delay');
         showSwipeHint();
         enableThrow((velocity) => {
           onMyThrow(velocity);

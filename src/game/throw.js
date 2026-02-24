@@ -21,11 +21,6 @@ let previewLine = null;
 let previewScene = null;
 let activePointerId = null; // Track single pointer for multi-touch rejection
 
-// Use shared debug overlay from game.js
-function debugLog(msg) {
-  console.log(msg);
-  if (window._dbg) window._dbg(msg);
-}
 
 export function initThrowControls(canvasEl, scene) {
   canvas = canvasEl;
@@ -67,7 +62,7 @@ export function initThrowControls(canvasEl, scene) {
 export function enableThrow(callback) {
   onThrowCallback = callback;
   swipeEnabled = true;
-  debugLog('[Throw] enableThrow swipeEnabled=' + swipeEnabled + ' canvas=' + !!canvas);
+
 }
 
 export function disableThrow() {
@@ -79,7 +74,6 @@ export function disableThrow() {
 
 function onPointerDown(e) {
   if (!swipeEnabled) return;
-  debugLog('[Throw] DOWN tgt=' + e.target.tagName + ' pid=' + e.pointerId);
   e.preventDefault();
 
   // Only track one finger at a time — reject multi-touch
@@ -132,7 +126,7 @@ function onPointerUp(e) {
   const dy = end.y - swipeStart.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
 
-  debugLog('[Throw] dist=' + dist.toFixed(1) + ' min=' + MIN_SWIPE_DISTANCE);
+
 
   if (previewLine) previewLine.visible = false;
 
@@ -143,7 +137,7 @@ function onPointerUp(e) {
 
   const velocity = computeVelocity(swipeStart, end);
   swipeStart = null;
-  debugLog('[Throw] vel=' + JSON.stringify(velocity) + ' cb=' + !!onThrowCallback);
+
 
   if (velocity && onThrowCallback) {
     onThrowCallback(velocity);
