@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { setupSocketHandlers } from './server/socket-handlers.js';
+import apiRouter from './server/api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -21,8 +22,14 @@ const io = new Server(httpServer, {
   },
 });
 
+// Parse JSON bodies for API
+app.use(express.json());
+
 // Serve static files from Vite build output
 app.use(express.static(path.join(__dirname, 'dist')));
+
+// API routes
+app.use('/api', apiRouter);
 
 // SPA fallback
 app.get('*', (req, res) => {

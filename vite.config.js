@@ -9,11 +9,18 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    headers: {
+      'Cache-Control': 'no-store',
+    },
     proxy: {
       '/socket.io': {
         target: 'http://localhost:3000',
         changeOrigin: true,
         ws: true,
+      },
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
       },
     },
   },
