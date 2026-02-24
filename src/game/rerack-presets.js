@@ -28,34 +28,39 @@ function triangle(count) {
 // Diamond formation
 function diamond(count) {
   if (count <= 2) return line(count);
+  if (count <= 3) return triangle(count);
   const positions = [];
-  // Build diamond row by row: 1, 2, 3, ..., peak, ..., 3, 2, 1
-  const side = Math.ceil((-1 + Math.sqrt(1 + 2 * count)) / 2);
-  let placed = 0;
+  // Find peak width: smallest k where diamond fits count
+  // Diamond with peak k has k^2 cups (k rows up + k-1 rows down)
+  // But we need at least `count`, so find k where k^2 >= count
+  let peak = Math.ceil(Math.sqrt(count));
+  // Build the diamond row pattern: 1, 2, ..., peak, ..., 2, 1
   const rows = [];
-  // Build up
-  for (let r = 1; r <= side && placed < count; r++) {
-    const inRow = Math.min(r, count - placed);
-    rows.push(inRow);
-    placed += inRow;
+  let total = 0;
+  for (let r = 1; r <= peak; r++) { rows.push(r); total += r; }
+  for (let r = peak - 1; r >= 1; r--) { rows.push(r); total += r; }
+  // If still not enough, widen the peak rows until we have enough slots
+  while (total < count) {
+    // Add an extra row at peak width
+    rows.splice(peak, 0, peak);
+    total += peak;
   }
-  // Build down
-  for (let r = side - 1; r >= 1 && placed < count; r--) {
-    const inRow = Math.min(r, count - placed);
-    rows.push(inRow);
-    placed += inRow;
-  }
+  // Place cups row by row, stopping at count
+  let placed = 0;
   let z = 0;
   for (const cupsInRow of rows) {
-    const rowWidth = (cupsInRow - 1) * spacing;
-    for (let col = 0; col < cupsInRow; col++) {
+    const toPlace = Math.min(cupsInRow, count - placed);
+    if (toPlace <= 0) break;
+    const rowWidth = (toPlace - 1) * spacing;
+    for (let col = 0; col < toPlace; col++) {
       positions.push({ x: -rowWidth / 2 + col * spacing, z });
+      placed++;
     }
     z += spacing * 0.866;
   }
   const avgZ = positions.reduce((s, p) => s + p.z, 0) / positions.length;
   positions.forEach(p => p.z -= avgZ);
-  return positions.slice(0, count);
+  return positions;
 }
 
 // Single line
