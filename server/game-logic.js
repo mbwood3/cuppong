@@ -1,4 +1,4 @@
-import { CUPS_PER_PLAYER, THROWS_PER_TURN, RERACKS_PER_PLAYER } from './constants.js';
+import { CUPS_PER_PLAYER, THROWS_PER_TURN, RERACKS_PER_PLAYER, CUP_TOP_RADIUS } from './constants.js';
 
 export function createGameState(players) {
   return {
@@ -15,7 +15,7 @@ export function createGameState(players) {
     currentTarget: null,
     throwNumber: 0, // 0 or 1 (two throws per turn)
     hitsThisTurn: 0,
-    turnPhase: 'selecting', // selecting | throwing | resolving
+    turnPhase: 'selecting', // selecting | reracking | throwing | resolving
     winnerId: null,
     status: 'playing',
   };
@@ -32,6 +32,51 @@ export function selectTarget(gameState, playerId, targetIndex) {
   if (target.id === playerId) return { error: 'Cannot target yourself' };
 
   gameState.currentTarget = targetIndex;
+  if (currentPlayer.reracksRemaining > 0) {
+    gameState.turnPhase = 'reracking';
+  } else {
+    gameState.turnPhase = 'throwing';
+  }
+  return { ok: true };
+}
+
+export function rerackCups(gameState, playerId, targetIndex, newPositions) {
+  const currentPlayer = gameState.players[gameState.currentTurnIndex];
+  if (currentPlayer.id !== playerId) return { error: 'Not your turn' };
+  if (gameState.turnPhase !== 'reracking') return { error: 'Not in rerack phase' };
+
+  const target = gameState.players[targetIndex];
+  if (!target) return { error: 'Invalid target' };
+
+  // Count active cups
+  const activeCups = target.cups.filter(c => c).length;
+  if (newPositions.length !== activeCups) return { error: 'Wrong number of positions' };
+
+  // Validate minimum distance between cups (no overlapping)
+  const MIN_DIST = CUP_TOP_RADIUS * 2;
+  for (let i = 0; i < newPositions.length; i++) {
+    for (let j = i + 1; j < newPositions.length; j++) {
+      const dx = newPositions[i].x - newPositions[j].x;
+      const dz = newPositions[i].z - newPositions[j].z;
+      if (Math.sqrt(dx * dx + dz * dz) < MIN_DIST * 0.9) {
+        return { error: 'Cups too close together' };
+      }
+    }
+  }
+
+  // Store positions — map active cup indices to new positions
+  target.cupPositions = newPositions;
+  currentPlayer.reracksRemaining--;
+
+  gameState.turnPhase = 'throwing';
+  return { ok: true };
+}
+
+export function skipRerack(gameState, playerId) {
+  const currentPlayer = gameState.players[gameState.currentTurnIndex];
+  if (currentPlayer.id !== playerId) return { error: 'Not your turn' };
+  if (gameState.turnPhase !== 'reracking') return { error: 'Not in rerack phase' };
+
   gameState.turnPhase = 'throwing';
   return { ok: true };
 }
