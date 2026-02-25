@@ -41,7 +41,7 @@ const C = {
 
 // ─── Cup exclusion zones ───
 // Pre-compute all cup world positions so gore props don't overlap them.
-const CUP_ZONE_RADIUS = 0.75; // clearance around each cup center (must exceed largest physics body radius)
+const CUP_ZONE_RADIUS = 1.1; // clearance: largest prop (head r=0.5) + cup (r=0.13) + ball margin
 const rowSpacing = CUP_TOP_RADIUS * 2 + 0.01;
 
 const allCupPositions = [];
@@ -994,143 +994,103 @@ export function addGoreProps(scene, world, onEyeballHit) {
   // Helper: create gore at a safe position (avoiding cup zones)
   function sp(rawX, rawZ) { return safePos(rawX, rawZ); }
 
-  // ─── Blood puddles (12) ───
-  const puddleRaw = [
-    [R*0.3, R*0.5, 1.2], [-R*0.45, -R*0.2, 0.9], [R*0.1, -R*0.55, 1.0],
-    [-R*0.6, R*0.35, 0.7], [R*0.55, -R*0.45, 0.8], [-R*0.2, -R*0.6, 1.1],
-    [R*0.65, R*0.1, 0.6], [-R*0.1, R*0.65, 0.9], [R*0.4, -R*0.5, 0.7],
-    [-R*0.55, -R*0.5, 1.0], [R*0.15, R*0.35, 0.5], [-R*0.35, R*0.15, 0.8],
-  ];
-  for (const [rx, rz, sz] of puddleRaw) {
-    const s = sp(rx, rz);
-    createBloodPuddle(scene, s.x, s.z, sz);
+  // Deterministic pseudo-random for reproducible placement
+  let _seed = 42;
+  function rand() { _seed = (_seed * 16807 + 0) % 2147483647; return _seed / 2147483647; }
+  function randRange(lo, hi) { return lo + rand() * (hi - lo); }
+  function randPos() { const a = rand() * Math.PI * 2, r = (0.2 + rand() * 0.65) * R; return sp(Math.cos(a) * r, Math.sin(a) * r); }
+  function randRot() { return rand() * Math.PI * 2; }
+
+  // ─── Blood puddles (36) ───
+  for (let i = 0; i < 36; i++) {
+    const s = randPos();
+    createBloodPuddle(scene, s.x, s.z, 0.4 + rand() * 0.9);
   }
 
-  // ─── Blood smears (9) ───
-  const smearRaw = [
-    [-R*0.2, R*0.4, 0.8, 1.2], [R*0.35, -R*0.3, -1.5, 0.9],
-    [R*0.5, R*0.2, 2.1, 0.7], [-R*0.5, -R*0.1, 1.0, 1.0],
-    [R*0.1, R*0.6, -0.5, 0.8], [-R*0.3, -R*0.55, 2.8, 1.1],
-    [R*0.6, -R*0.2, 0.3, 0.6], [-R*0.6, R*0.5, -1.2, 0.9],
-    [R*0.25, -R*0.6, 1.7, 0.7],
-  ];
-  for (const [rx, rz, rot, sz] of smearRaw) {
-    const s = sp(rx, rz);
-    createBloodSmear(scene, s.x, s.z, rot, sz);
+  // ─── Blood smears (27) ───
+  for (let i = 0; i < 27; i++) {
+    const s = randPos();
+    createBloodSmear(scene, s.x, s.z, randRot(), 0.5 + rand() * 0.7);
   }
 
-  // ─── Severed heads (3) ───
-  { const s = sp(0, 0);
+  // ─── Severed heads (9) ───
+  for (let i = 0; i < 9; i++) {
+    const s = randPos();
     const h = createSeveredHead(scene, s.x, s.z);
-    addProp(h, { x: s.x, y: 0.5, z: s.z }, new CANNON.Sphere(0.5), 2.0); }
-  { const s = sp(-R*0.5, -R*0.55);
-    const h = createSeveredHead(scene, s.x, s.z);
-    addProp(h, { x: s.x, y: 0.5, z: s.z }, new CANNON.Sphere(0.5), 2.0); }
-  { const s = sp(R*0.45, R*0.5);
-    const h = createSeveredHead(scene, s.x, s.z);
-    addProp(h, { x: s.x, y: 0.5, z: s.z }, new CANNON.Sphere(0.5), 2.0); }
+    addProp(h, { x: s.x, y: 0.5, z: s.z }, new CANNON.Sphere(0.5), 2.0);
+  }
 
-  // ─── EYEBALLS (8) — scattered everywhere, all trigger hit reaction ───
-  const eyeRaw = [
-    [-R*0.15, R*0.3], [R*0.25, -R*0.2], [-R*0.4, R*0.5], [R*0.5, R*0.15],
-    [-R*0.55, -R*0.15], [R*0.1, R*0.55], [-R*0.2, -R*0.45], [R*0.6, -R*0.35],
-  ];
-  for (const [rx, rz] of eyeRaw) {
-    const s = sp(rx, rz);
+  // ─── EYEBALLS (24) — scattered everywhere, all trigger hit reaction ───
+  for (let i = 0; i < 24; i++) {
+    const s = randPos();
     addEyeball(s.x, s.z);
   }
 
-  // ─── Hearts (3) ───
-  { const s = sp(R*0.35, -R*0.15);
-    addProp(createHeart(scene, s.x, s.z), { x: s.x, y: 0.15, z: s.z }, new CANNON.Sphere(0.15), 0.3); }
-  { const s = sp(-R*0.6, -R*0.3);
-    addProp(createHeart(scene, s.x, s.z), { x: s.x, y: 0.15, z: s.z }, new CANNON.Sphere(0.15), 0.3); }
-  { const s = sp(R*0.15, R*0.65);
-    addProp(createHeart(scene, s.x, s.z), { x: s.x, y: 0.15, z: s.z }, new CANNON.Sphere(0.15), 0.3); }
+  // ─── Hearts (9) ───
+  for (let i = 0; i < 9; i++) {
+    const s = randPos();
+    addProp(createHeart(scene, s.x, s.z), { x: s.x, y: 0.15, z: s.z }, new CANNON.Sphere(0.15), 0.3);
+  }
 
-  // ─── Intestines (3) ───
-  { const s = sp(-R*0.4, -R*0.35);
-    addProp(createIntestines(scene, s.x, s.z), { x: s.x, y: 0.06, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8); }
-  { const s = sp(R*0.55, -R*0.5);
-    addProp(createIntestines(scene, s.x, s.z), { x: s.x, y: 0.06, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8); }
-  { const s = sp(-R*0.15, R*0.55);
-    addProp(createIntestines(scene, s.x, s.z), { x: s.x, y: 0.06, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8); }
+  // ─── Intestines (9) ───
+  for (let i = 0; i < 9; i++) {
+    const s = randPos();
+    addProp(createIntestines(scene, s.x, s.z), { x: s.x, y: 0.06, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.3, 0.1, 0.3)), 0.8);
+  }
 
-  // ─── Brains (3) ───
-  { const s = sp(R*0.2, R*0.5);
-    addProp(createBrain(scene, s.x, s.z), { x: s.x, y: 0.12, z: s.z }, new CANNON.Sphere(0.13), 0.4); }
-  { const s = sp(-R*0.35, -R*0.6);
-    addProp(createBrain(scene, s.x, s.z), { x: s.x, y: 0.12, z: s.z }, new CANNON.Sphere(0.13), 0.4); }
-  { const s = sp(R*0.6, R*0.3);
-    addProp(createBrain(scene, s.x, s.z), { x: s.x, y: 0.12, z: s.z }, new CANNON.Sphere(0.13), 0.4); }
+  // ─── Brains (9) ───
+  for (let i = 0; i < 9; i++) {
+    const s = randPos();
+    addProp(createBrain(scene, s.x, s.z), { x: s.x, y: 0.12, z: s.z }, new CANNON.Sphere(0.13), 0.4);
+  }
 
-  // ─── Livers (2) ───
-  { const s = sp(-R*0.55, R*0.1);
-    addProp(createLiver(scene, s.x, s.z), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.15)), 0.5); }
-  { const s = sp(R*0.4, -R*0.6);
-    addProp(createLiver(scene, s.x, s.z), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.15)), 0.5); }
+  // ─── Livers (6) ───
+  for (let i = 0; i < 6; i++) {
+    const s = randPos();
+    addProp(createLiver(scene, s.x, s.z), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.15)), 0.5);
+  }
 
-  // ─── Forearms (3) ───
-  { const s = sp(R*0.5, R*0.35);
-    addProp(createForearm(scene, s.x, s.z, -0.4), { x: s.x, y: 0.12, z: s.z }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5); }
-  { const s = sp(-R*0.6, -R*0.45);
-    addProp(createForearm(scene, s.x, s.z, 1.2), { x: s.x, y: 0.12, z: s.z }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5); }
-  { const s = sp(R*0.1, -R*0.65);
-    addProp(createForearm(scene, s.x, s.z, 2.8), { x: s.x, y: 0.12, z: s.z }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5); }
+  // ─── Forearms (9) ───
+  for (let i = 0; i < 9; i++) {
+    const s = randPos();
+    addProp(createForearm(scene, s.x, s.z, randRot()), { x: s.x, y: 0.12, z: s.z }, new CANNON.Cylinder(0.12, 0.12, 0.8, 8), 1.5);
+  }
 
-  // ─── Feet (3) ───
-  { const s = sp(-R*0.3, R*0.55);
-    addProp(createFoot(scene, s.x, s.z, 1.8), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0); }
-  { const s = sp(R*0.65, R*0.1);
-    addProp(createFoot(scene, s.x, s.z, -0.7), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0); }
-  { const s = sp(-R*0.5, -R*0.2);
-    addProp(createFoot(scene, s.x, s.z, 3.0), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0); }
+  // ─── Feet (9) ───
+  for (let i = 0; i < 9; i++) {
+    const s = randPos();
+    addProp(createFoot(scene, s.x, s.z, randRot()), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.15, 0.06, 0.25)), 1.0);
+  }
 
-  // ─── Ears (3) ───
-  { const s = sp(R*0.6, -R*0.4);
-    addProp(createEar(scene, s.x, s.z, 0.9), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05); }
-  { const s = sp(-R*0.45, R*0.6);
-    addProp(createEar(scene, s.x, s.z, -1.5), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05); }
-  { const s = sp(R*0.3, R*0.55);
-    addProp(createEar(scene, s.x, s.z, 2.3), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05); }
+  // ─── Ears (9) ───
+  for (let i = 0; i < 9; i++) {
+    const s = randPos();
+    addProp(createEar(scene, s.x, s.z, randRot()), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.06, 0.07, 0.015)), 0.05);
+  }
 
-  // ─── Tongues (3) ───
-  { const s = sp(-R*0.15, -R*0.5);
-    addProp(createTongue(scene, s.x, s.z, -0.6), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1); }
-  { const s = sp(R*0.45, R*0.45);
-    addProp(createTongue(scene, s.x, s.z, 1.4), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1); }
-  { const s = sp(-R*0.6, -R*0.55);
-    addProp(createTongue(scene, s.x, s.z, 2.9), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1); }
+  // ─── Tongues (9) ───
+  for (let i = 0; i < 9; i++) {
+    const s = randPos();
+    addProp(createTongue(scene, s.x, s.z, randRot()), { x: s.x, y: 0.02, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.04, 0.02, 0.12)), 0.1);
+  }
 
-  // ─── Severed hands (3) ───
-  { const s = sp(R*0.4, R*0.4);
-    addProp(createSeveredHand(scene, s.x, s.z, -0.5), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3); }
-  { const s = sp(-R*0.55, R*0.45);
-    addProp(createSeveredHand(scene, s.x, s.z, 2.0), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3); }
-  { const s = sp(R*0.2, -R*0.55);
-    addProp(createSeveredHand(scene, s.x, s.z, -1.8), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3); }
+  // ─── Severed hands (9) ───
+  for (let i = 0; i < 9; i++) {
+    const s = randPos();
+    addProp(createSeveredHand(scene, s.x, s.z, randRot()), { x: s.x, y: 0.05, z: s.z }, new CANNON.Box(new CANNON.Vec3(0.2, 0.05, 0.18)), 0.3);
+  }
 
-  // ─── Severed fingers (9) ───
-  const fingerSpots = [
-    [R*0.55, R*0.1, 1.2], [-R*0.3, R*0.55, -0.8], [R*0.15, -R*0.45, 2.5],
-    [-R*0.65, R*0.2, 0.3], [R*0.35, R*0.6, -1.0], [-R*0.1, -R*0.65, 1.8],
-    [R*0.65, -R*0.3, -0.4], [-R*0.45, -R*0.35, 2.2], [R*0.5, -R*0.55, 0.7],
-  ];
-  for (const [fx, fz, fr] of fingerSpots) {
-    const s = sp(fx, fz);
-    const f = createSeveredFinger(scene, s.x, s.z, fr);
+  // ─── Severed fingers (27) ───
+  for (let i = 0; i < 27; i++) {
+    const s = randPos();
+    const f = createSeveredFinger(scene, s.x, s.z, randRot());
     addProp(f, { x: s.x, y: 0.06, z: s.z }, new CANNON.Cylinder(0.04, 0.04, 0.45, 6), 0.05);
   }
 
-  // ─── Bone fragments (6) ───
-  const boneSpots = [
-    [-R*0.5, -R*0.4, 0.6], [R*0.6, -R*0.15, -1.2],
-    [R*0.3, -R*0.6, 1.9], [-R*0.65, -R*0.1, -0.5],
-    [-R*0.2, R*0.6, 2.6], [R*0.55, R*0.55, 0.2],
-  ];
-  for (const [bx, bz, br] of boneSpots) {
-    const s = sp(bx, bz);
-    const b = createBoneFragment(scene, s.x, s.z, br);
+  // ─── Bone fragments (18) ───
+  for (let i = 0; i < 18; i++) {
+    const s = randPos();
+    const b = createBoneFragment(scene, s.x, s.z, randRot());
     addProp(b, { x: s.x, y: 0.04, z: s.z }, new CANNON.Cylinder(0.04, 0.04, 0.5, 6), 0.1);
   }
 
