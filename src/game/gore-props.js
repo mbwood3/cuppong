@@ -120,55 +120,95 @@ function safePos(x, z) {
 function fleshMat(color = C.FLESH, wetness = 0.5) {
   return new THREE.MeshPhysicalMaterial({
     color,
-    roughness: 0.7 - wetness * 0.4,
+    vertexColors: false, // enabled per-mesh when vertex colors are added
+    roughness: 0.65 - wetness * 0.35,
+    roughnessMap: null,
     metalness: 0.0,
-    clearcoat: wetness * 0.3,
-    clearcoatRoughness: 0.4,
-    sheen: 0.3,
-    sheenRoughness: 0.5,
-    sheenColor: new THREE.Color(0xff6644),
+    clearcoat: wetness * 0.4,
+    clearcoatRoughness: 0.3,
+    sheen: 0.4,
+    sheenRoughness: 0.4,
+    sheenColor: new THREE.Color(0xff5533),
+    bumpScale: 0.02,
   });
+}
+
+// Create flesh material with vertex colors for mottled/bruised look
+function fleshMatVC(color = C.FLESH, wetness = 0.5) {
+  const m = fleshMat(color, wetness);
+  m.vertexColors = true;
+  return m;
 }
 
 function organMat(color = C.ORGAN_RED, wetness = 0.8) {
   return new THREE.MeshPhysicalMaterial({
     color,
-    roughness: 0.2,
+    vertexColors: false,
+    roughness: 0.18,
     metalness: 0.0,
-    clearcoat: 0.6,
-    clearcoatRoughness: 0.15,
-    sheen: 0.5,
-    sheenRoughness: 0.3,
-    sheenColor: new THREE.Color(0xff4422),
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.1,
+    sheen: 0.6,
+    sheenRoughness: 0.25,
+    sheenColor: new THREE.Color(0xff3311),
   });
+}
+
+function organMatVC(color = C.ORGAN_RED, wetness = 0.8) {
+  const m = organMat(color, wetness);
+  m.vertexColors = true;
+  return m;
 }
 
 function bloodMat(pooled = true) {
   return new THREE.MeshStandardMaterial({
     color: pooled ? C.DARK_BLOOD : C.FRESH_BLOOD,
-    roughness: pooled ? 0.3 : 0.15,
-    metalness: 0.08,
+    roughness: pooled ? 0.25 : 0.1,
+    metalness: 0.1,
     transparent: true,
-    opacity: pooled ? 0.85 : 0.9,
+    opacity: pooled ? 0.88 : 0.92,
   });
 }
 
 function boneMat() {
-  return new THREE.MeshStandardMaterial({ color: C.BONE, roughness: 0.6, metalness: 0.0 });
+  return new THREE.MeshStandardMaterial({ color: C.BONE, roughness: 0.55, metalness: 0.02 });
 }
 
 // ─── Geometry helpers ───
 
+// Multi-octave organic noise displacement — looks fleshy, not geometric
 function displaceVertices(geo, amount = 0.02, freq = 3.0) {
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const noise = Math.sin(x * freq) * Math.cos(y * freq * 1.3) * Math.sin(z * freq * 0.7);
+    // 3 octaves of sine-based noise at different frequencies
+    const n1 = Math.sin(x * freq) * Math.cos(y * freq * 1.3) * Math.sin(z * freq * 0.7);
+    const n2 = Math.sin(x * freq * 2.3 + 1.7) * Math.cos(y * freq * 1.9 + 0.5) * Math.sin(z * freq * 2.1 + 2.3);
+    const n3 = Math.sin(x * freq * 4.7 + 3.1) * Math.cos(y * freq * 3.7 + 1.2) * Math.sin(z * freq * 5.3 + 0.9);
+    const noise = n1 * 0.5 + n2 * 0.3 + n3 * 0.2;
     const len = Math.sqrt(x * x + y * y + z * z) || 1;
-    pos.setXYZ(i, x + (x / len) * noise * amount, y + (y / len) * noise * amount, z + (z / len) * noise * amount);
+    const d = noise * amount;
+    pos.setXYZ(i, x + (x / len) * d, y + (y / len) * d, z + (z / len) * d);
   }
   pos.needsUpdate = true;
   geo.computeVertexNormals();
+}
+
+// Add per-vertex color variation to make surfaces look mottled/bruised
+function addVertexColors(geo, baseColor, variation = 0.15) {
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const base = new THREE.Color(baseColor);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    // Position-based color variation (looks like bruises/discoloration)
+    const n = Math.sin(x * 7.3 + y * 5.1) * Math.cos(z * 6.7 + x * 3.2) * variation;
+    const darkSpot = Math.sin(x * 13 + z * 11) > 0.7 ? -variation * 0.5 : 0;
+    colors[i * 3] = Math.max(0, Math.min(1, base.r + n + darkSpot));
+    colors[i * 3 + 1] = Math.max(0, Math.min(1, base.g + n * 0.5 + darkSpot));
+    colors[i * 3 + 2] = Math.max(0, Math.min(1, base.b + n * 0.3 + darkSpot));
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 }
 
 function makeTube(points, radius = 0.015, mat = null) {
@@ -285,9 +325,10 @@ function createSeveredFinger(scene, x, z, rotY = 0) {
   const group = new THREE.Group();
   const fm = fleshMat();
 
-  const fingerGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.45, CYL_SEG);
-  displaceVertices(fingerGeo, 0.008, 5);
-  const finger = new THREE.Mesh(fingerGeo, fm);
+  const fingerGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.45, CYL_SEG + 4, 6);
+  displaceVertices(fingerGeo, 0.012, 6);
+  addVertexColors(fingerGeo, C.FLESH, 0.08);
+  const finger = new THREE.Mesh(fingerGeo, fleshMatVC());
   finger.rotation.z = Math.PI / 2;
   finger.position.y = 0.06;
   group.add(finger);
@@ -313,8 +354,8 @@ function createBoneFragment(scene, x, z, rotY = 0) {
   const group = new THREE.Group();
   const bm = boneMat();
 
-  const shaftGeo = new THREE.CylinderGeometry(0.04, 0.06, 0.5, CYL_SEG);
-  displaceVertices(shaftGeo, 0.005, 4);
+  const shaftGeo = new THREE.CylinderGeometry(0.04, 0.06, 0.5, CYL_SEG + 4, 6);
+  displaceVertices(shaftGeo, 0.008, 5);
   const shaft = new THREE.Mesh(shaftGeo, bm);
   shaft.rotation.z = Math.PI / 2;
   shaft.position.y = 0.04;
@@ -343,10 +384,11 @@ function createBoneFragment(scene, x, z, rotY = 0) {
 function createEyeball(scene, x, z) {
   const group = new THREE.Group();
 
-  const eyeGeo = new THREE.SphereGeometry(0.12, SPHERE_SEG, SPHERE_SEG);
+  const eyeGeo = new THREE.SphereGeometry(0.12, SPHERE_SEG + 4, SPHERE_SEG + 4);
+  displaceVertices(eyeGeo, 0.004, 6); // very subtle organic wobble
   const eyeMat = new THREE.MeshPhysicalMaterial({
-    color: 0xf5f0e0, roughness: 0.15, metalness: 0.05,
-    clearcoat: 0.8, clearcoatRoughness: 0.1,
+    color: 0xf5f0e0, roughness: 0.12, metalness: 0.05,
+    clearcoat: 0.9, clearcoatRoughness: 0.05,
   });
   const eye = new THREE.Mesh(eyeGeo, eyeMat);
   eye.position.y = 0.12;
@@ -402,9 +444,10 @@ function createSeveredHand(scene, x, z, rotY = 0) {
   const group = new THREE.Group();
   const fm = fleshMat();
 
-  const palmGeo = new THREE.BoxGeometry(0.4, 0.1, 0.35, 4, 2, 4);
-  displaceVertices(palmGeo, 0.008, 4);
-  const palm = new THREE.Mesh(palmGeo, fm);
+  const palmGeo = new THREE.BoxGeometry(0.4, 0.1, 0.35, 8, 4, 8);
+  displaceVertices(palmGeo, 0.015, 5);
+  addVertexColors(palmGeo, C.FLESH, 0.08);
+  const palm = new THREE.Mesh(palmGeo, fleshMatVC());
   palm.position.y = 0.05;
   group.add(palm);
 
@@ -442,21 +485,21 @@ function createSeveredHand(scene, x, z, rotY = 0) {
 
 function createSeveredHead(scene, x, z) {
   const group = new THREE.Group();
-  const fm = fleshMat(C.FLESH, 0.6);
-  const darkFm = fleshMat(C.FLESH_DARK, 0.4);
 
-  // Cranium
-  const craniumGeo = new THREE.SphereGeometry(0.5, SPHERE_SEG + 4, SPHERE_SEG);
-  displaceVertices(craniumGeo, 0.025, 2.5);
-  const cranium = new THREE.Mesh(craniumGeo, fm);
+  // Cranium — higher subdivision for organic look
+  const craniumGeo = new THREE.SphereGeometry(0.5, SPHERE_SEG + 8, SPHERE_SEG + 4);
+  displaceVertices(craniumGeo, 0.04, 3.5); // stronger displacement
+  addVertexColors(craniumGeo, C.FLESH, 0.12);
+  const cranium = new THREE.Mesh(craniumGeo, fleshMatVC(C.FLESH, 0.6));
   cranium.scale.y = 0.85;
   cranium.position.y = 0.5;
   group.add(cranium);
 
   // Jaw — lower half-sphere, slightly open
-  const jawGeo = new THREE.SphereGeometry(0.38, SPHERE_SEG, SPHERE_SEG, 0, Math.PI * 2, 0, Math.PI * 0.5);
-  displaceVertices(jawGeo, 0.015, 3);
-  const jaw = new THREE.Mesh(jawGeo, fm);
+  const jawGeo = new THREE.SphereGeometry(0.38, SPHERE_SEG + 4, SPHERE_SEG + 2, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  displaceVertices(jawGeo, 0.025, 4);
+  addVertexColors(jawGeo, C.FLESH, 0.1);
+  const jaw = new THREE.Mesh(jawGeo, fleshMatVC(C.FLESH, 0.6));
   jaw.position.set(0, 0.25, 0.05);
   jaw.rotation.x = 0.15; // slightly open
   group.add(jaw);
@@ -517,10 +560,10 @@ function createSeveredHead(scene, x, z) {
   group.add(boundary);
 
   // Neck stump with layered cross-section
-  const neckStump = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.25, 0.2, 0.15, CYL_SEG + 2),
-    organMat(C.MUSCLE, 0.9)
-  );
+  const neckGeo = new THREE.CylinderGeometry(0.25, 0.2, 0.15, CYL_SEG + 6, 4);
+  displaceVertices(neckGeo, 0.015, 5);
+  addVertexColors(neckGeo, C.MUSCLE, 0.2);
+  const neckStump = new THREE.Mesh(neckGeo, organMatVC(C.MUSCLE, 0.9));
   neckStump.position.y = 0.08;
   group.add(neckStump);
 
@@ -578,9 +621,10 @@ function createHeart(scene, x, z) {
     new THREE.Vector2(0.06, 0.2),
     new THREE.Vector2(0, 0.17),
   ];
-  const heartGeo = new THREE.LatheGeometry(profile, SPHERE_SEG);
-  displaceVertices(heartGeo, 0.012, 4);
-  const heart = new THREE.Mesh(heartGeo, organMat(C.ORGAN_RED, 0.9));
+  const heartGeo = new THREE.LatheGeometry(profile, SPHERE_SEG + 6);
+  displaceVertices(heartGeo, 0.025, 5);
+  addVertexColors(heartGeo, C.ORGAN_RED, 0.18);
+  const heart = new THREE.Mesh(heartGeo, organMatVC(C.ORGAN_RED, 0.9));
   heart.scale.set(1, 1, 0.7);
   heart.position.y = 0.2;
   group.add(heart);
@@ -620,8 +664,9 @@ function createIntestines(scene, x, z) {
     ));
   }
   const curve = new THREE.CatmullRomCurve3(points);
-  const tubeGeo = new THREE.TubeGeometry(curve, TUBE_SEG + 16, 0.035, TUBE_RAD, false);
-  const intestine = new THREE.Mesh(tubeGeo, organMat(C.ORGAN_PINK, 0.9));
+  const tubeGeo = new THREE.TubeGeometry(curve, TUBE_SEG + 16, 0.035, TUBE_RAD + 2, false);
+  addVertexColors(tubeGeo, C.ORGAN_PINK, 0.15);
+  const intestine = new THREE.Mesh(tubeGeo, organMatVC(C.ORGAN_PINK, 0.9));
   group.add(intestine);
 
   // Second overlapping tube for tangled look
@@ -637,8 +682,9 @@ function createIntestines(scene, x, z) {
     ));
   }
   const curve2 = new THREE.CatmullRomCurve3(points2);
-  const tubeGeo2 = new THREE.TubeGeometry(curve2, TUBE_SEG, 0.03, TUBE_RAD, false);
-  const intestine2 = new THREE.Mesh(tubeGeo2, organMat(C.ORGAN_PINK, 0.85));
+  const tubeGeo2 = new THREE.TubeGeometry(curve2, TUBE_SEG, 0.03, TUBE_RAD + 2, false);
+  addVertexColors(tubeGeo2, C.ORGAN_PINK, 0.12);
+  const intestine2 = new THREE.Mesh(tubeGeo2, organMatVC(C.ORGAN_PINK, 0.85));
   group.add(intestine2);
 
   createBloodPuddle(scene, x, z, 0.7);
@@ -650,10 +696,11 @@ function createIntestines(scene, x, z) {
 function createBrain(scene, x, z) {
   const group = new THREE.Group();
 
-  // Brain base sphere
-  const brainGeo = new THREE.SphereGeometry(0.15, SPHERE_SEG, SPHERE_SEG - 2);
-  displaceVertices(brainGeo, 0.01, 5);
-  const brain = new THREE.Mesh(brainGeo, organMat(C.ORGAN_PINK, 0.7));
+  // Brain base sphere — more wrinkly and organic
+  const brainGeo = new THREE.SphereGeometry(0.15, SPHERE_SEG + 6, SPHERE_SEG + 4);
+  displaceVertices(brainGeo, 0.02, 8); // high frequency for wrinkly look
+  addVertexColors(brainGeo, C.ORGAN_PINK, 0.2);
+  const brain = new THREE.Mesh(brainGeo, organMatVC(C.ORGAN_PINK, 0.7));
   brain.scale.set(1, 0.75, 0.85);
   brain.position.y = 0.12;
   group.add(brain);
@@ -710,10 +757,11 @@ function createLiver(scene, x, z) {
     new THREE.Vector2(0.1, 0.04),
     new THREE.Vector2(0, 0.03),
   ];
-  const liverGeo = new THREE.LatheGeometry(profile, SPHERE_SEG - 4);
+  const liverGeo = new THREE.LatheGeometry(profile, SPHERE_SEG + 4);
   liverGeo.scale(1.3, 1, 0.8);
-  displaceVertices(liverGeo, 0.015, 2.5);
-  const liver = new THREE.Mesh(liverGeo, organMat(0x6b2020, 0.9));
+  displaceVertices(liverGeo, 0.025, 4);
+  addVertexColors(liverGeo, 0x6b2020, 0.2);
+  const liver = new THREE.Mesh(liverGeo, organMatVC(0x6b2020, 0.9));
   liver.position.y = 0.05;
   group.add(liver);
 
@@ -727,19 +775,20 @@ function createForearm(scene, x, z, rotY = 0) {
   const group = new THREE.Group();
   const fm = fleshMat(C.FLESH, 0.5);
 
-  // Arm shaft
-  const armGeo = new THREE.CylinderGeometry(0.1, 0.12, 0.8, CYL_SEG + 2);
-  displaceVertices(armGeo, 0.012, 3);
-  const arm = new THREE.Mesh(armGeo, fm);
+  // Arm shaft — more segments for organic deformation
+  const armGeo = new THREE.CylinderGeometry(0.1, 0.12, 0.8, CYL_SEG + 6, 8);
+  displaceVertices(armGeo, 0.02, 4);
+  addVertexColors(armGeo, C.FLESH, 0.1);
+  const arm = new THREE.Mesh(armGeo, fleshMatVC(C.FLESH, 0.5));
   arm.rotation.z = Math.PI / 2;
   arm.position.y = 0.12;
   group.add(arm);
 
   // Hand at wrist end
-  const handFm = fleshMat(C.FLESH_PALE, 0.4);
-  const palmGeo = new THREE.BoxGeometry(0.2, 0.08, 0.18, 3, 2, 3);
-  displaceVertices(palmGeo, 0.006, 5);
-  const palm = new THREE.Mesh(palmGeo, handFm);
+  const palmGeo2 = new THREE.BoxGeometry(0.2, 0.08, 0.18, 6, 4, 6);
+  displaceVertices(palmGeo2, 0.01, 6);
+  addVertexColors(palmGeo2, C.FLESH_PALE, 0.06);
+  const palm = new THREE.Mesh(palmGeo2, fleshMatVC(C.FLESH_PALE, 0.4));
   palm.position.set(0.5, 0.12, 0);
   group.add(palm);
 
@@ -797,10 +846,11 @@ function createFoot(scene, x, z, rotY = 0) {
   const group = new THREE.Group();
   const fm = fleshMat(C.FLESH, 0.4);
 
-  // Foot body
-  const footGeo = new THREE.BoxGeometry(0.18, 0.1, 0.4, 4, 2, 6);
-  displaceVertices(footGeo, 0.012, 3);
-  const foot = new THREE.Mesh(footGeo, fm);
+  // Foot body — more subdivisions for organic shape
+  const footGeo = new THREE.BoxGeometry(0.18, 0.1, 0.4, 8, 4, 10);
+  displaceVertices(footGeo, 0.018, 4);
+  addVertexColors(footGeo, C.FLESH, 0.1);
+  const foot = new THREE.Mesh(footGeo, fleshMatVC(C.FLESH, 0.4));
   foot.position.y = 0.05;
   group.add(foot);
 
@@ -856,8 +906,10 @@ function createEar(scene, x, z, rotY = 0) {
   earShape.lineTo(0, -0.12);
 
   const earGeo = new THREE.ExtrudeGeometry(earShape, {
-    depth: 0.02, bevelEnabled: true, bevelSize: 0.005, bevelThickness: 0.005, bevelSegments: 2,
+    depth: 0.025, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.008, bevelSegments: 3,
+    curveSegments: 12,
   });
+  displaceVertices(earGeo, 0.004, 8);
   const ear = new THREE.Mesh(earGeo, fleshMat(C.FLESH, 0.4));
   ear.rotation.x = -Math.PI / 2;
   ear.position.y = 0.02;
@@ -897,7 +949,7 @@ function createEar(scene, x, z, rotY = 0) {
 function createTongue(scene, x, z, rotY = 0) {
   const group = new THREE.Group();
 
-  const tongueGeo = new THREE.BoxGeometry(0.08, 0.03, 0.25, 4, 2, 8);
+  const tongueGeo = new THREE.BoxGeometry(0.08, 0.03, 0.25, 8, 4, 12);
   // Manual bend — curve the tongue tip downward
   const pos = tongueGeo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
@@ -911,10 +963,11 @@ function createTongue(scene, x, z, rotY = 0) {
     }
   }
   pos.needsUpdate = true;
-  displaceVertices(tongueGeo, 0.005, 6);
+  displaceVertices(tongueGeo, 0.008, 7);
   tongueGeo.computeVertexNormals();
+  addVertexColors(tongueGeo, 0xcc6666, 0.12);
 
-  const tongue = new THREE.Mesh(tongueGeo, organMat(0xcc6666, 0.8));
+  const tongue = new THREE.Mesh(tongueGeo, organMatVC(0xcc6666, 0.8));
   tongue.position.y = 0.02;
   group.add(tongue);
 
