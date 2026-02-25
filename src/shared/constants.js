@@ -27,7 +27,7 @@ export const BALL_RADIUS = 0.06;
 export const BALL_MASS = 0.0027; // ping pong ball mass in kg
 
 // Physics
-export const GRAVITY = -9.0;
+export const GRAVITY = -9.92;
 export const BALL_RESTITUTION = 0.6;
 export const BALL_FRICTION = 0.3;
 
@@ -37,8 +37,8 @@ export const MAX_SWIPE_TIME = 600; // ms
 export const HORIZONTAL_SCALE = 0.003;
 export const FORWARD_SCALE = 0.006;
 export const ARC_SCALE = 0.0066;
-export const MIN_THROW_SPEED = 1.65;
-export const MAX_THROW_SPEED = 8.04;
+export const MIN_THROW_SPEED = 1.73;
+export const MAX_THROW_SPEED = 8.44;
 
 // Player colors (brighter for visibility on green table)
 export const PLAYER_COLORS = [

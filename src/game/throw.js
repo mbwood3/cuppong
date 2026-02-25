@@ -7,6 +7,7 @@ import {
   ARC_SCALE,
   MIN_THROW_SPEED,
   MAX_THROW_SPEED,
+  GRAVITY,
   PLAYER_ANGLES,
   PLAYER_DISTANCE,
 } from '../shared/constants.js';
@@ -235,7 +236,7 @@ function computeTrajectoryPreview(velocity) {
     px += vx * dt;
     py += vy * dt;
     pz += vz * dt;
-    vy -= 9.82 * dt;
+    vy += GRAVITY * dt;
     if (py < -0.5) break;
   }
 
