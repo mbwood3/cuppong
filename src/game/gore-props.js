@@ -792,9 +792,11 @@ function createForearm(scene, x, z, rotY = 0) {
   palm.position.set(0.5, 0.12, 0);
   group.add(palm);
 
+  const handFm = fleshMatVC(C.FLESH_PALE, 0.4);
   for (let i = 0; i < 4; i++) {
     const len = 0.15 + Math.random() * 0.06;
     const fGeo = new THREE.CylinderGeometry(0.02, 0.025, len, CYL_SEG);
+    addVertexColors(fGeo, C.FLESH_PALE, 0.05);
     const f = new THREE.Mesh(fGeo, handFm);
     f.position.set(0.6 + len / 2 * 0.85, 0.12, (i - 1.5) * 0.04);
     f.rotation.z = Math.PI / 2 + (i - 1.5) * 0.06;
@@ -803,6 +805,7 @@ function createForearm(scene, x, z, rotY = 0) {
 
   // Thumb
   const thumbGeo = new THREE.CylinderGeometry(0.025, 0.03, 0.12, CYL_SEG);
+  addVertexColors(thumbGeo, C.FLESH_PALE, 0.05);
   const thumb = new THREE.Mesh(thumbGeo, handFm);
   thumb.position.set(0.45, 0.12, -0.12);
   thumb.rotation.z = Math.PI / 2 - 0.5;
