@@ -115,6 +115,162 @@ function safePos(x, z) {
   return { x: nx, z: nz };
 }
 
+// ─── Procedural texture generators (lazy-cached) ───
+
+let _fleshNormalMap = null;
+function getFleshNormalMap() {
+  if (_fleshNormalMap) return _fleshNormalMap;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Neutral normal base (pointing straight out)
+  ctx.fillStyle = 'rgb(128,128,255)';
+  ctx.fillRect(0, 0, size, size);
+
+  // Pores — small dark dots scattered across surface
+  for (let i = 0; i < 600; i++) {
+    const px = Math.random() * size;
+    const py = Math.random() * size;
+    const r = 0.5 + Math.random() * 1.2;
+    const offset = Math.floor(Math.random() * 20 - 10);
+    ctx.fillStyle = `rgb(${128 + offset},${128 + offset},${240 + Math.floor(Math.random() * 15)})`;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Wrinkle lines — thin slightly-offset strokes
+  ctx.strokeStyle = 'rgba(118,118,245,0.4)';
+  ctx.lineWidth = 0.8;
+  for (let i = 0; i < 25; i++) {
+    const sx = Math.random() * size;
+    const sy = Math.random() * size;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    for (let j = 0; j < 4; j++) {
+      ctx.lineTo(sx + (Math.random() - 0.5) * 30, sy + (Math.random() - 0.5) * 30);
+    }
+    ctx.stroke();
+  }
+
+  // Bumpy patches — larger subtle blobs
+  for (let i = 0; i < 40; i++) {
+    const px = Math.random() * size;
+    const py = Math.random() * size;
+    const r = 3 + Math.random() * 5;
+    const nx = Math.floor(128 + (Math.random() - 0.5) * 30);
+    const ny = Math.floor(128 + (Math.random() - 0.5) * 30);
+    ctx.fillStyle = `rgba(${nx},${ny},250,0.3)`;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  _fleshNormalMap = new THREE.CanvasTexture(canvas);
+  _fleshNormalMap.wrapS = THREE.RepeatWrapping;
+  _fleshNormalMap.wrapT = THREE.RepeatWrapping;
+  return _fleshNormalMap;
+}
+
+let _organNormalMap = null;
+function getOrganNormalMap() {
+  if (_organNormalMap) return _organNormalMap;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Neutral normal base
+  ctx.fillStyle = 'rgb(128,128,255)';
+  ctx.fillRect(0, 0, size, size);
+
+  // Larger undulating bumps — organs are smoother/wetter than skin
+  for (let i = 0; i < 20; i++) {
+    const px = Math.random() * size;
+    const py = Math.random() * size;
+    const r = 8 + Math.random() * 15;
+    const nx = Math.floor(128 + (Math.random() - 0.5) * 20);
+    const ny = Math.floor(128 + (Math.random() - 0.5) * 20);
+    const gradient = ctx.createRadialGradient(px, py, 0, px, py, r);
+    gradient.addColorStop(0, `rgba(${nx},${ny},252,0.5)`);
+    gradient.addColorStop(1, 'rgba(128,128,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // A few subtle ridges
+  ctx.strokeStyle = 'rgba(120,120,248,0.25)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 8; i++) {
+    const sx = Math.random() * size;
+    const sy = Math.random() * size;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.quadraticCurveTo(
+      sx + (Math.random() - 0.5) * 60, sy + (Math.random() - 0.5) * 60,
+      sx + (Math.random() - 0.5) * 80, sy + (Math.random() - 0.5) * 80
+    );
+    ctx.stroke();
+  }
+
+  _organNormalMap = new THREE.CanvasTexture(canvas);
+  _organNormalMap.wrapS = THREE.RepeatWrapping;
+  _organNormalMap.wrapT = THREE.RepeatWrapping;
+  return _organNormalMap;
+}
+
+let _fleshRoughnessMap = null;
+function getFleshRoughnessMap() {
+  if (_fleshRoughnessMap) return _fleshRoughnessMap;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Base gray (~160 = moderately rough)
+  ctx.fillStyle = 'rgb(160,160,160)';
+  ctx.fillRect(0, 0, size, size);
+
+  // Wet patches (dark = smooth/wet)
+  for (let i = 0; i < 30; i++) {
+    const px = Math.random() * size;
+    const py = Math.random() * size;
+    const r = 4 + Math.random() * 12;
+    const v = Math.floor(60 + Math.random() * 50); // dark = wet/smooth
+    const gradient = ctx.createRadialGradient(px, py, 0, px, py, r);
+    gradient.addColorStop(0, `rgba(${v},${v},${v},0.6)`);
+    gradient.addColorStop(1, 'rgba(160,160,160,0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Dry patches (light = rough)
+  for (let i = 0; i < 20; i++) {
+    const px = Math.random() * size;
+    const py = Math.random() * size;
+    const r = 3 + Math.random() * 8;
+    const v = Math.floor(190 + Math.random() * 50); // light = dry/rough
+    ctx.fillStyle = `rgba(${v},${v},${v},0.4)`;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  _fleshRoughnessMap = new THREE.CanvasTexture(canvas);
+  _fleshRoughnessMap.wrapS = THREE.RepeatWrapping;
+  _fleshRoughnessMap.wrapT = THREE.RepeatWrapping;
+  return _fleshRoughnessMap;
+}
+
 // ─── Material factories ───
 
 function fleshMat(color = C.FLESH, wetness = 0.5) {
@@ -122,14 +278,15 @@ function fleshMat(color = C.FLESH, wetness = 0.5) {
     color,
     vertexColors: false, // enabled per-mesh when vertex colors are added
     roughness: 0.65 - wetness * 0.35,
-    roughnessMap: null,
+    roughnessMap: getFleshRoughnessMap(),
     metalness: 0.0,
     clearcoat: wetness * 0.4,
     clearcoatRoughness: 0.3,
     sheen: 0.4,
     sheenRoughness: 0.4,
     sheenColor: new THREE.Color(0xff5533),
-    bumpScale: 0.02,
+    normalMap: getFleshNormalMap(),
+    normalScale: new THREE.Vector2(0.8, 0.8),
   });
 }
 
@@ -144,13 +301,15 @@ function organMat(color = C.ORGAN_RED, wetness = 0.8) {
   return new THREE.MeshPhysicalMaterial({
     color,
     vertexColors: false,
-    roughness: 0.18,
+    roughness: 0.15,
     metalness: 0.0,
-    clearcoat: 0.7,
-    clearcoatRoughness: 0.1,
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.08,
     sheen: 0.6,
     sheenRoughness: 0.25,
     sheenColor: new THREE.Color(0xff3311),
+    normalMap: getOrganNormalMap(),
+    normalScale: new THREE.Vector2(0.5, 0.5),
   });
 }
 
@@ -163,10 +322,12 @@ function organMatVC(color = C.ORGAN_RED, wetness = 0.8) {
 function bloodMat(pooled = true) {
   return new THREE.MeshStandardMaterial({
     color: pooled ? C.DARK_BLOOD : C.FRESH_BLOOD,
-    roughness: pooled ? 0.25 : 0.1,
+    roughness: pooled ? 0.25 : 0.08,
     metalness: 0.1,
     transparent: true,
     opacity: pooled ? 0.88 : 0.92,
+    emissive: pooled ? 0x000000 : 0x220000,
+    emissiveIntensity: pooled ? 0 : 0.15,
   });
 }
 
