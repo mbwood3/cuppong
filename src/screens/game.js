@@ -1,5 +1,5 @@
 import { initScene, onAnimate, getScene, getCamera, getRenderer } from '../game/scene.js';
-import { createTable } from '../game/table.js';
+import { createTable, updateTableMist } from '../game/table.js';
 import { createCups, removeCup, getCupWorldPosition, repositionCups } from '../game/cups.js';
 import { createBall, showBall, updateBallPosition, hideBall } from '../game/ball.js';
 import { initPhysics, launchBall, stepPhysics, disableCupTrigger, stopSimulation, rebuildCupColliders, getWorld, stepWorld } from '../game/physics.js';
@@ -79,6 +79,7 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
 
     updateCamera(dt);
     updateHitEffects();
+    updateTableMist();
 
     // Step physics world every frame (gore props need settling even when ball isn't active)
     stepWorld();

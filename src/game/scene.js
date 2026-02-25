@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CAMERA_FOV } from '../shared/constants.js';
+import { initPostProcessing, resizePostProcessing, getComposer } from './post-processing.js';
 
 let scene, camera, renderer;
 let animationCallbacks = [];
@@ -36,6 +37,9 @@ export function initScene(container) {
 
   container.appendChild(renderer.domElement);
 
+  // Post-processing (bloom + vignette)
+  initPostProcessing(renderer, scene, camera);
+
   // --- Lighting ---
 
   // Warm ambient — slight orange tint for party feel
@@ -68,10 +72,12 @@ export function initScene(container) {
 
   // Handle resize (iOS orientation changes)
   function handleResize() {
+    const pixelRatio = Math.min(window.devicePixelRatio, 2);
     camera.aspect = container.clientWidth / container.clientHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(pixelRatio);
+    resizePostProcessing(container.clientWidth, container.clientHeight, pixelRatio);
   }
 
   window.addEventListener('resize', handleResize);
@@ -97,7 +103,10 @@ function animate() {
   for (const cb of animationCallbacks) {
     cb();
   }
-  if (renderer && scene && camera) {
+  const composer = getComposer();
+  if (composer) {
+    composer.render();
+  } else if (renderer && scene && camera) {
     renderer.render(scene, camera);
   }
 }

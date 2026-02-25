@@ -23,6 +23,7 @@ let isSimulating = false;
 let hitCallback = null;
 let missCallback = null;
 let simulationTimeout = null;
+let prevBallPos = { x: 0, y: 0, z: 0 }; // for swept-sphere anti-tunneling
 
 // Materials
 let ballMaterial = null;
@@ -155,6 +156,7 @@ export function launchBall(startPos, velocity, activeCups, onHit, onMiss) {
     (Math.random() - 0.5) * 10
   );
 
+  prevBallPos = { x: startPos.x, y: startPos.y, z: startPos.z };
   hitCallback = onHit;
   missCallback = onMiss;
   isSimulating = true;
@@ -169,52 +171,74 @@ export function launchBall(startPos, velocity, activeCups, onHit, onMiss) {
   }, 4000);
 }
 
+// Check a single point against all cup triggers. Returns {pi, ci} or null.
+function checkPointAgainstCups(px, py, pz) {
+  for (let pi = 0; pi < cupTriggers.length; pi++) {
+    for (let ci = 0; ci < cupTriggers[pi].length; ci++) {
+      const trigger = cupTriggers[pi][ci];
+      if (!trigger) continue;
+
+      const cupCenterY = trigger.position.y;
+      const rimY = cupCenterY + CUP_HEIGHT * 0.5;
+
+      const dx = px - trigger.position.x;
+      const dz = pz - trigger.position.z;
+      const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+
+      // Widened trigger: 80% of cup radius (rim physics handles deflections)
+      const maxHorizDist = CUP_TOP_RADIUS * 0.8;
+      const belowRim = py < rimY - BALL_RADIUS * 0.5; // more forgiving
+      const aboveBottom = py > cupCenterY - CUP_HEIGHT * 0.4; // wider vertical window
+
+      if (horizontalDist < maxHorizDist && belowRim && aboveBottom) {
+        return { pi, ci };
+      }
+    }
+  }
+  return null;
+}
+
 export function stepPhysics() {
   if (!world || !isSimulating) return null;
 
   const ballPos = ballBody.position;
-  const ballVel = ballBody.velocity;
 
   // Check if ball has fallen below table
   if (ballPos.y < -0.5) {
     isSimulating = false;
     clearTimeout(simulationTimeout);
     if (missCallback) missCallback();
+    prevBallPos = { x: ballPos.x, y: ballPos.y, z: ballPos.z };
     return { x: ballPos.x, y: ballPos.y, z: ballPos.z, done: true, hit: false };
   }
 
-  // Check cup triggers — ball must enter from above the rim and descend inside the cup
-  for (let pi = 0; pi < cupTriggers.length; pi++) {
-    for (let ci = 0; ci < cupTriggers[pi].length; ci++) {
-      const trigger = cupTriggers[pi][ci];
-      if (!trigger) continue;
+  // Swept-sphere anti-tunneling: interpolate substeps if ball moved far this frame
+  const dx = ballPos.x - prevBallPos.x;
+  const dy = ballPos.y - prevBallPos.y;
+  const dz = ballPos.z - prevBallPos.z;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-      const cupCenterY = trigger.position.y; // center of cup
-      const rimY = cupCenterY + CUP_HEIGHT * 0.5; // top of cup rim
+  // If ball moved more than half a cup radius, check intermediate positions
+  const threshold = CUP_TOP_RADIUS * 0.5;
+  const substeps = dist > threshold ? Math.min(Math.ceil(dist / threshold), 6) : 1;
 
-      const dx = ballPos.x - trigger.position.x;
-      const dz = ballPos.z - trigger.position.z;
-      const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+  for (let s = 0; s < substeps; s++) {
+    const t = substeps === 1 ? 1 : (s + 1) / substeps;
+    const px = prevBallPos.x + dx * t;
+    const py = prevBallPos.y + dy * t;
+    const pz = prevBallPos.z + dz * t;
 
-      // Ball must be:
-      // 1. Horizontally inside the cup opening (~45% of cup diameter)
-      // 2. Below the rim plane (ball center dropped past the rim top)
-      // 3. Above the cup bottom (not fallen through somehow)
-      const maxHorizDist = CUP_TOP_RADIUS * 0.6;
-      const belowRim = ballPos.y < rimY - BALL_RADIUS;
-      const aboveBottom = ballPos.y > cupCenterY - CUP_HEIGHT * 0.3;
-
-      if (horizontalDist < maxHorizDist &&
-          belowRim &&
-          aboveBottom) {
-        isSimulating = false;
-        clearTimeout(simulationTimeout);
-        if (hitCallback) hitCallback(pi, ci);
-        return { x: ballPos.x, y: ballPos.y, z: ballPos.z, done: true, hit: true, playerIndex: pi, cupIndex: ci };
-      }
+    const hit = checkPointAgainstCups(px, py, pz);
+    if (hit) {
+      isSimulating = false;
+      clearTimeout(simulationTimeout);
+      if (hitCallback) hitCallback(hit.pi, hit.ci);
+      prevBallPos = { x: px, y: py, z: pz };
+      return { x: px, y: py, z: pz, done: true, hit: true, playerIndex: hit.pi, cupIndex: hit.ci };
     }
   }
 
+  prevBallPos = { x: ballPos.x, y: ballPos.y, z: ballPos.z };
   return { x: ballPos.x, y: ballPos.y, z: ballPos.z, done: false };
 }
 
