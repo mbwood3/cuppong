@@ -37,8 +37,8 @@ export const MAX_SWIPE_TIME = 600; // ms
 export const HORIZONTAL_SCALE = 0.003;
 export const FORWARD_SCALE = 0.006;
 export const ARC_SCALE = 0.0066;
-export const MIN_THROW_SPEED = 1.99;
-export const MAX_THROW_SPEED = 8.75;
+export const MIN_THROW_SPEED = 1.5;
+export const MAX_THROW_SPEED = 11.0;
 
 // Player colors (brighter for visibility on green table)
 export const PLAYER_COLORS = [
