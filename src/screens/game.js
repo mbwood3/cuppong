@@ -8,12 +8,15 @@ import { initCameraController, setCameraOverhead, setCameraThrowView, setCameraS
 import { initHitEffects, playCupHitEffect, updateHitEffects, cameraShake } from '../game/hit-effects.js';
 import { emit, on, off } from '../network/socket.js';
 import { EVENTS } from '../network/events.js';
-import { PLAYER_COLORS, PLAYER_COLOR_NAMES, CUPS_PER_PLAYER, THROWS_PER_TURN, PLAYER_ANGLES, PLAYER_DISTANCE } from '../shared/constants.js';
+import { CUPS_PER_PLAYER, THROWS_PER_TURN, PLAYER_ANGLES, PLAYER_DISTANCE } from '../shared/constants.js';
 import { getCupTriangleCenter } from '../game/cups.js';
 import { getAvailablePresets } from '../game/rerack-presets.js';
 import { addGoreProps } from '../game/gore-props.js';
+import { addChristmasProps } from '../game/christmas-props.js';
+import { getTheme, getThemeName, THEMES } from '../shared/themes.js';
 
-const COLOR_HEX = PLAYER_COLORS.map(c => '#' + c.toString(16).padStart(6, '0'));
+function getPlayerColors() { return getTheme().cups.playerColors; }
+function getColorHex() { return getPlayerColors().map(c => '#' + c.toString(16).padStart(6, '0')); }
 
 let gameState = null;
 let myIndex = -1;
@@ -63,9 +66,14 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
   createBall(scene);
   initPhysics();
   try {
-    goreSystem = addGoreProps(scene, getWorld(), showEyeballReaction);
+    const theme = getTheme();
+    if (theme.props.type === 'christmas') {
+      goreSystem = addChristmasProps(scene, getWorld(), showEyeballReaction);
+    } else {
+      goreSystem = addGoreProps(scene, getWorld(), showEyeballReaction);
+    }
   } catch (e) {
-    console.error('Gore props failed to load:', e);
+    console.error('Props failed to load:', e);
   }
   initThrowControls(renderer.domElement, scene);
   initCameraController(camera);
@@ -107,9 +115,35 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
     on(EVENTS.CUPS_RERACKED, onCupsReracked);
   }
 
+  // Theme toggle button (top-right corner)
+  addThemeToggle(overlay);
+
   // Initial UI update
   updateUI();
   handleTurnPhase();
+}
+
+function addThemeToggle(overlay) {
+  const btn = document.createElement('button');
+  const currentTheme = getThemeName();
+  const icon = currentTheme === 'christmas' ? '\u{1F480}' : '\u{1F384}';
+  btn.textContent = icon;
+  btn.title = `Switch to ${currentTheme === 'christmas' ? 'Horror' : 'Christmas'}`;
+  btn.style.cssText = `
+    position: absolute; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right));
+    z-index: 40; pointer-events: auto; width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2); color: #fff;
+    font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  `;
+  btn.addEventListener('click', () => {
+    const next = getThemeName() === 'horror' ? 'christmas' : 'horror';
+    window.__theme = next;
+    localStorage.setItem('cuppong_theme', next);
+    window.location.reload();
+  });
+  overlay.appendChild(btn);
 }
 
 function updateUI() {
@@ -128,7 +162,7 @@ function updateUI() {
 
   hudEl.innerHTML = `
     <div class="hud-top">
-      <div class="turn-indicator" style="color: ${COLOR_HEX[gameState.currentTurnIndex]}">
+      <div class="turn-indicator" style="color: ${getColorHex()[gameState.currentTurnIndex]}">
         ${isMyTurn ? 'Your turn!' : `${currentPlayer.name}'s turn`}
       </div>
       <div class="throw-counter">
@@ -147,7 +181,7 @@ function updateUI() {
           const cupsLeft = p.cups.filter(c => c).length;
           return `
             <div class="cup-count-item" style="opacity: ${p.eliminated ? 0.3 : 1}">
-              <div class="cup-count-number" style="color: ${COLOR_HEX[i]}">${cupsLeft}</div>
+              <div class="cup-count-number" style="color: ${getColorHex()[i]}">${cupsLeft}</div>
               <div>${p.name}${p.eliminated ? ' (out)' : ''}</div>
             </div>
           `;
@@ -231,7 +265,7 @@ function showTargetSelector() {
     <div class="target-selector">
       <h3>Choose your target</h3>
       ${opponents.map(p => `
-        <button class="btn btn-target" style="background: ${COLOR_HEX[p.index]}22; border: 2px solid ${COLOR_HEX[p.index]}"
+        <button class="btn btn-target" style="background: ${getColorHex()[p.index]}22; border: 2px solid ${getColorHex()[p.index]}"
           data-target="${p.index}">
           ${p.name} (${p.cups.filter(c => c).length} cups)
         </button>
@@ -395,10 +429,10 @@ function handleTestThrowResult(hit, targetPlayerIndex, cupIndex) {
       const cupPos = getCupWorldPosition(targetPlayerIndex, cupIndex);
       removeCup(cupMeshes, getScene(), targetPlayerIndex, cupIndex);
       disableCupTrigger(targetPlayerIndex, cupIndex);
-      flashScreen(COLOR_HEX[gameState.currentTurnIndex]);
+      flashScreen(getColorHex()[gameState.currentTurnIndex]);
       showHitText();
       if (cupPos) {
-        playCupHitEffect(cupPos.x, cupPos.y, cupPos.z, PLAYER_COLORS[targetPlayerIndex]);
+        playCupHitEffect(cupPos.x, cupPos.y, cupPos.z, getPlayerColors()[targetPlayerIndex]);
         cameraShake(getCamera());
       }
 
@@ -482,10 +516,10 @@ function handleAsyncThrowResult(data, hit, targetPlayerIndex, cupIndex) {
     const cupPos = getCupWorldPosition(targetPlayerIndex, cupIndex);
     removeCup(cupMeshes, getScene(), targetPlayerIndex, cupIndex);
     disableCupTrigger(targetPlayerIndex, cupIndex);
-    flashScreen(COLOR_HEX[myIndex]);
+    flashScreen(getColorHex()[myIndex]);
     showHitText();
     if (cupPos) {
-      playCupHitEffect(cupPos.x, cupPos.y, cupPos.z, PLAYER_COLORS[targetPlayerIndex]);
+      playCupHitEffect(cupPos.x, cupPos.y, cupPos.z, getPlayerColors()[targetPlayerIndex]);
       cameraShake(getCamera());
     }
   }
@@ -785,10 +819,10 @@ function onThrowResolved(data) {
     const cupPos = getCupWorldPosition(data.targetIndex, data.cupIndex);
     removeCup(cupMeshes, getScene(), data.targetIndex, data.cupIndex);
     disableCupTrigger(data.targetIndex, data.cupIndex);
-    flashScreen(COLOR_HEX[gameState.currentTurnIndex]);
+    flashScreen(getColorHex()[gameState.currentTurnIndex]);
     showHitText();
     if (cupPos) {
-      playCupHitEffect(cupPos.x, cupPos.y, cupPos.z, PLAYER_COLORS[data.targetIndex]);
+      playCupHitEffect(cupPos.x, cupPos.y, cupPos.z, getPlayerColors()[data.targetIndex]);
       cameraShake(getCamera());
     }
   }
@@ -890,21 +924,24 @@ function playHitChime() {
 }
 
 function showHitText() {
+  const theme = getTheme();
   const isSlut = cupHitStreak >= 2;
-  const phrase = isSlut ? 'CUP SLUT!' : HIT_PHRASES[Math.floor(Math.random() * HIT_PHRASES.length)];
+  const streakWords = theme.ui.streakText; // e.g. ['CUP', 'SLUT!'] or ['NICE', 'LIST!']
+  const phrase = isSlut ? `${streakWords[0]} ${streakWords[1]}` : HIT_PHRASES[Math.floor(Math.random() * HIT_PHRASES.length)];
   speakPhrase(phrase);
 
+  const streakColor = '#' + theme.ui.streakColor.toString(16).padStart(6, '0');
   const el = document.createElement('div');
   if (isSlut) {
-    el.innerHTML = '<div style="font-size:3.2rem;letter-spacing:0.3em;margin-bottom:-0.2em">CUP</div><div style="font-size:4.5rem">SLUT!</div>';
+    el.innerHTML = `<div style="font-size:3.2rem;letter-spacing:0.3em;margin-bottom:-0.2em">${streakWords[0]}</div><div style="font-size:4.5rem">${streakWords[1]}</div>`;
   } else {
     el.textContent = phrase;
   }
   const fontSize = isSlut ? '4rem' : '3rem';
-  const color = isSlut ? '#ff3366' : '#fff';
+  const color = isSlut ? streakColor : '#fff';
   const shadow = isSlut
-    ? '0 0 30px rgba(255,50,100,1), 0 0 60px rgba(255,0,50,0.7), 0 0 90px rgba(255,0,100,0.4)'
-    : '0 0 20px rgba(255,100,50,0.9), 0 0 40px rgba(255,50,0,0.5)';
+    ? `0 0 30px ${streakColor}, 0 0 60px ${streakColor}aa, 0 0 90px ${streakColor}66`
+    : `0 0 20px ${theme.ui.hitGlowColor}, 0 0 40px rgba(255,50,0,0.5)`;
   el.style.cssText = `
     position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%) scale(0.5);
     font-size: ${fontSize}; font-weight: 900; color: ${color}; text-shadow: ${shadow};
@@ -929,7 +966,7 @@ function showEyeballReaction() {
   eyeballCooldown = true;
   setTimeout(() => { eyeballCooldown = false; }, 3000);
 
-  const phrase = "I've got my EYE on you!";
+  const phrase = getTheme().ui.eyeballText;
 
   // Creepy deep voice
   if (window.speechSynthesis) {
@@ -996,7 +1033,7 @@ function showGameOver() {
   const html = `
     <div class="game-over-overlay">
       <h1>Game Over!</h1>
-      <div class="winner-name" style="color: ${COLOR_HEX[winner.index]}">${winner.name} wins!</div>
+      <div class="winner-name" style="color: ${getColorHex()[winner.index]}">${winner.name} wins!</div>
       <button class="btn btn-primary" id="btn-play-again" style="max-width: 200px;">Play Again</button>
     </div>
   `;

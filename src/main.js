@@ -4,6 +4,13 @@ import { showWaitingRoom } from './screens/waiting-room.js';
 import { showCreateGame } from './screens/create-game.js';
 import { startGame } from './screens/game.js';
 import { CUPS_PER_PLAYER, RERACKS_PER_PLAYER } from './shared/constants.js';
+import { THEMES } from './shared/themes.js';
+
+// Restore theme from localStorage
+const savedTheme = localStorage.getItem('cuppong_theme');
+if (savedTheme && THEMES[savedTheme]) {
+  window.__theme = savedTheme;
+}
 
 const screenContainer = document.getElementById('screen-container');
 const canvasContainer = document.getElementById('game-canvas-container');

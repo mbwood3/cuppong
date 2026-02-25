@@ -1,15 +1,33 @@
 import { emit, setCurrentRoom } from '../network/socket.js';
 import { EVENTS } from '../network/events.js';
-import { PLAYER_COLORS, CUPS_PER_PLAYER, RERACKS_PER_PLAYER } from '../shared/constants.js';
+import { CUPS_PER_PLAYER, RERACKS_PER_PLAYER } from '../shared/constants.js';
+import { THEMES, getThemeName } from '../shared/themes.js';
+
+function initThemeFromStorage() {
+  const saved = localStorage.getItem('cuppong_theme');
+  if (saved && THEMES[saved]) {
+    window.__theme = saved;
+  }
+}
 
 export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, onAsyncRejoin, prefillCode }) {
+  initThemeFromStorage();
   const isJoining = !!prefillCode;
+  const currentTheme = getThemeName();
 
   container.innerHTML = `
     <div class="screen">
       <h1>Malc Pong</h1>
       <h2>3-Player Cutthroat</h2>
       <div id="lobby-main">
+        <div class="theme-picker">
+          ${Object.entries(THEMES).map(([key, t]) => `
+            <button class="theme-option ${key === currentTheme ? 'active' : ''}" data-theme="${key}">
+              <span class="theme-icon">${key === 'horror' ? '&#x1F480;' : '&#x1F384;'}</span>
+              <span class="theme-label">${t.name}</span>
+            </button>
+          `).join('')}
+        </div>
         <input class="input" id="player-name" placeholder="Your name" maxlength="12" autocomplete="off" />
         <div id="lobby-buttons">
           <button class="btn btn-primary" id="btn-create">Create Room</button>
@@ -158,5 +176,16 @@ export function showLobby(container, { onRoomJoined, onFreeplay, onAsyncGame, on
     } catch (err) {
       showError('Network error: ' + err.message);
     }
+  });
+
+  // Theme picker
+  container.querySelectorAll('.theme-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const themeName = btn.dataset.theme;
+      window.__theme = themeName;
+      localStorage.setItem('cuppong_theme', themeName);
+      container.querySelectorAll('.theme-option').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
   });
 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CUP_HEIGHT, CUP_TOP_RADIUS } from '../shared/constants.js';
+import { getTheme } from '../shared/themes.js';
 
 let effectScene = null;
 let activeParticles = [];
@@ -11,32 +12,28 @@ export function initHitEffects(scene) {
 }
 
 /**
- * Play a splash + blood splatter + glow effect when a ball lands in a cup.
- * @param {number} x - cup world x
- * @param {number} y - cup world y
- * @param {number} z - cup world z
- * @param {number} color - hex color of the cup's player
+ * Play a splash + splatter + glow effect when a ball lands in a cup.
  */
 export function playCupHitEffect(x, y, z, color) {
   if (!effectScene) return;
 
-  // 1. Splash particles — droplets burst upward (beer + blood mix)
+  // 1. Splash particles burst upward
   spawnSplashParticles(x, y + CUP_HEIGHT * 0.3, z, color);
 
-  // 2. Blood splatter decals on table surface
-  spawnBloodSplatters(x, z);
+  // 2. Splatter decals on table surface (blood or snowflake marks)
+  spawnSplatDecals(x, z);
 
   // 3. Glow ring — expanding ring of light at cup position
   spawnGlowRing(x, y + CUP_HEIGHT * 0.5, z, color);
-
-  // 4. Camera shake is handled by the caller
 }
 
 function spawnSplashParticles(x, y, z, color) {
+  const theme = getTheme();
+  const fx = theme.hitEffects;
   const PARTICLE_COUNT = 24;
   const particleColor = new THREE.Color(color);
-  const splashColor = new THREE.Color(0xffcc44);
-  const bloodColor = new THREE.Color(0x880011);
+  const splashColor = new THREE.Color(fx.splashColors.beer);
+  const accentColor = new THREE.Color(fx.splashColors.blood);
 
   const particles = [];
 
@@ -44,14 +41,14 @@ function spawnSplashParticles(x, y, z, color) {
     const size = 0.015 + Math.random() * 0.025;
     const geom = new THREE.SphereGeometry(size, 6, 6);
 
-    // Mix of beer splash, player color, and blood red
+    // Mix of splash, player color, and accent
     let pColor;
     if (i < 8) {
       pColor = particleColor.clone().lerp(splashColor, 0.5);
     } else if (i < 16) {
       pColor = splashColor.clone();
     } else {
-      pColor = bloodColor.clone().lerp(new THREE.Color(0x440000), Math.random() * 0.5);
+      pColor = accentColor.clone().lerp(new THREE.Color(0x440000), Math.random() * 0.5);
     }
 
     const mat = new THREE.MeshBasicMaterial({
@@ -62,11 +59,10 @@ function spawnSplashParticles(x, y, z, color) {
     const mesh = new THREE.Mesh(geom, mat);
     mesh.position.set(x, y, z);
 
-    // Random upward/outward velocity — blood particles go wider and higher
     const angle = Math.random() * Math.PI * 2;
-    const isBlood = i >= 16;
-    const spread = CUP_TOP_RADIUS * (isBlood ? (1.0 + Math.random() * 2.5) : (0.5 + Math.random() * 1.5));
-    const upSpeed = isBlood ? (2.5 + Math.random() * 4.0) : (1.5 + Math.random() * 3.0);
+    const isAccent = i >= 16;
+    const spread = CUP_TOP_RADIUS * (isAccent ? (1.0 + Math.random() * 2.5) : (0.5 + Math.random() * 1.5));
+    const upSpeed = isAccent ? (2.5 + Math.random() * 4.0) : (1.5 + Math.random() * 3.0);
 
     mesh.userData.velocity = new THREE.Vector3(
       Math.cos(angle) * spread,
@@ -74,7 +70,7 @@ function spawnSplashParticles(x, y, z, color) {
       Math.sin(angle) * spread
     );
     mesh.userData.startTime = performance.now();
-    mesh.userData.lifetime = isBlood ? (700 + Math.random() * 500) : (500 + Math.random() * 400);
+    mesh.userData.lifetime = isAccent ? (700 + Math.random() * 500) : (500 + Math.random() * 400);
 
     effectScene.add(mesh);
     particles.push(mesh);
@@ -83,8 +79,11 @@ function spawnSplashParticles(x, y, z, color) {
   activeParticles.push(...particles);
 }
 
-function spawnBloodSplatters(x, z) {
-  const SPLATTER_COUNT = 4 + Math.floor(Math.random() * 3); // 4-6 splatters
+function spawnSplatDecals(x, z) {
+  const theme = getTheme();
+  const dc = theme.hitEffects.splatDecalColor;
+  const isSnow = theme.table.overlayType === 'snowflakes';
+  const SPLATTER_COUNT = 4 + Math.floor(Math.random() * 3);
 
   for (let i = 0; i < SPLATTER_COUNT; i++) {
     const angle = Math.random() * Math.PI * 2;
@@ -92,14 +91,13 @@ function spawnBloodSplatters(x, z) {
     const sx = x + Math.cos(angle) * dist;
     const sz = z + Math.sin(angle) * dist;
 
-    // Random sized blood circle
     const radius = 0.04 + Math.random() * 0.1;
     const geom = new THREE.CircleGeometry(radius, 12);
     const darkness = 0.3 + Math.random() * 0.5;
     const mat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(darkness * 0.5, 0, 0.01),
+      color: new THREE.Color(dc.r * darkness, dc.g * darkness, dc.b * darkness),
       transparent: true,
-      opacity: 0.7 + Math.random() * 0.3,
+      opacity: isSnow ? (0.5 + Math.random() * 0.3) : (0.7 + Math.random() * 0.3),
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -109,8 +107,9 @@ function spawnBloodSplatters(x, z) {
     splatter.position.set(sx, 0.003, sz);
     splatter.rotation.z = Math.random() * Math.PI * 2;
 
+    // Snow splatters fade faster
     splatter.userData.startTime = performance.now();
-    splatter.userData.lifetime = 3000 + Math.random() * 2000; // 3-5 seconds
+    splatter.userData.lifetime = isSnow ? (2000 + Math.random() * 1000) : (3000 + Math.random() * 2000);
     splatter.userData.fadeStart = 0.6;
     splatter.userData.maxOpacity = mat.opacity;
 
@@ -120,7 +119,9 @@ function spawnBloodSplatters(x, z) {
 }
 
 function spawnGlowRing(x, y, z, color) {
-  // Larger, more dramatic expanding ring
+  const theme = getTheme();
+
+  // Primary ring — player color
   const ringGeom = new THREE.RingGeometry(0.01, CUP_TOP_RADIUS * 0.8, 32);
   const ringMat = new THREE.MeshBasicMaterial({
     color: color,
@@ -139,10 +140,10 @@ function spawnGlowRing(x, y, z, color) {
   effectScene.add(ring);
   activeGlows.push(ring);
 
-  // Second ring — slower, wider blood-red ripple
+  // Second ring — theme accent ripple
   const ring2Geom = new THREE.RingGeometry(0.01, CUP_TOP_RADIUS * 0.4, 24);
   const ring2Mat = new THREE.MeshBasicMaterial({
-    color: 0xff2200,
+    color: theme.hitEffects.glowRingColor2,
     transparent: true,
     opacity: 0.5,
     side: THREE.DoubleSide,
@@ -151,7 +152,7 @@ function spawnGlowRing(x, y, z, color) {
   ring2.position.set(x, y - 0.01, z);
   ring2.rotation.x = -Math.PI / 2;
 
-  ring2.userData.startTime = performance.now() + 100; // delayed
+  ring2.userData.startTime = performance.now() + 100;
   ring2.userData.lifetime = 1000;
   ring2.userData.type = 'glow';
   ring2.userData.baseOpacity = 0.5;
@@ -195,7 +196,7 @@ export function updateHitEffects() {
   for (let i = activeGlows.length - 1; i >= 0; i--) {
     const g = activeGlows[i];
     const elapsed = now - g.userData.startTime;
-    if (elapsed < 0) continue; // delayed start
+    if (elapsed < 0) continue;
     const progress = elapsed / g.userData.lifetime;
 
     if (progress >= 1) {
@@ -206,7 +207,6 @@ export function updateHitEffects() {
       continue;
     }
 
-    // Expand ring — bigger for more drama
     const scale = 1 + progress * 6;
     g.scale.set(scale, scale, scale);
 
@@ -214,7 +214,7 @@ export function updateHitEffects() {
     g.material.opacity = baseOpacity * (1 - progress);
   }
 
-  // Update blood splatters
+  // Update splatter decals
   for (let i = activeSplatters.length - 1; i >= 0; i--) {
     const s = activeSplatters[i];
     const progress = (now - s.userData.startTime) / s.userData.lifetime;
@@ -227,7 +227,6 @@ export function updateHitEffects() {
       continue;
     }
 
-    // Fade after fadeStart threshold
     if (progress > s.userData.fadeStart) {
       const fadeProgress = (progress - s.userData.fadeStart) / (1 - s.userData.fadeStart);
       s.material.opacity = s.userData.maxOpacity * (1 - fadeProgress);
@@ -236,24 +235,28 @@ export function updateHitEffects() {
 }
 
 /**
- * Shake the camera briefly. Call with the camera reference.
+ * Shake the camera briefly. Uses theme intensity/duration.
  */
-export function cameraShake(camera, intensity = 0.06, duration = 250) {
+export function cameraShake(camera, intensity, duration) {
   if (!camera) return;
+
+  const theme = getTheme();
+  const shakeIntensity = intensity ?? theme.hitEffects.shakeIntensity;
+  const shakeDuration = duration ?? theme.hitEffects.shakeDuration;
 
   const startTime = performance.now();
 
   function shake() {
     const elapsed = performance.now() - startTime;
-    const progress = elapsed / duration;
+    const progress = elapsed / shakeDuration;
 
     if (progress >= 1) {
       return;
     }
 
     const decay = 1 - progress;
-    const offsetX = (Math.random() - 0.5) * 2 * intensity * decay;
-    const offsetY = (Math.random() - 0.5) * 2 * intensity * decay;
+    const offsetX = (Math.random() - 0.5) * 2 * shakeIntensity * decay;
+    const offsetY = (Math.random() - 0.5) * 2 * shakeIntensity * decay;
 
     camera.position.x += offsetX;
     camera.position.y += offsetY;

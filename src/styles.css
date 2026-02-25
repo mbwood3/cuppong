@@ -398,6 +398,53 @@ html, body {
   color: #888;
 }
 
+/* ============ THEME PICKER ============ */
+.theme-picker {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  font-family: inherit;
+}
+
+.theme-option:active {
+  transform: scale(0.95);
+}
+
+.theme-option.active {
+  border-color: #e94560;
+  background: rgba(233, 69, 96, 0.15);
+  color: #fff;
+  box-shadow: 0 0 20px rgba(233, 69, 96, 0.2);
+}
+
+.theme-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.theme-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
 .error-msg {
   color: #e94560;
   font-size: 0.9rem;

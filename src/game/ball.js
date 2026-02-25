@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BALL_RADIUS } from '../shared/constants.js';
+import { getTheme } from '../shared/themes.js';
 
 let ballGroup = null;
 let ballMesh = null;
@@ -11,16 +12,17 @@ let trailScene = null;
 let prevPos = null;
 
 export function createBall(scene) {
+  const theme = getTheme();
   trailScene = scene;
   ballGroup = new THREE.Group();
   ballGroup.visible = false;
 
-  // Main ball — slight orange tint like a real ping pong ball
+  // Main ball — theme-driven color
   const geometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
   const material = new THREE.MeshPhysicalMaterial({
-    color: 0xfff4e8,
-    emissive: 0xffddaa,
-    emissiveIntensity: 0.15,
+    color: theme.ball.color,
+    emissive: theme.ball.emissive,
+    emissiveIntensity: theme.ball.emissiveIntensity,
     roughness: 0.15,
     metalness: 0.0,
     clearcoat: 0.6,
@@ -30,12 +32,12 @@ export function createBall(scene) {
   ballMesh.castShadow = true;
   ballGroup.add(ballMesh);
 
-  // Warm glow halo around the ball for visibility
+  // Glow halo around the ball for visibility
   const glowGeometry = new THREE.SphereGeometry(BALL_RADIUS * 2.0, 16, 16);
   const glowMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffeecc,
+    color: theme.ball.glowColor,
     transparent: true,
-    opacity: 0.12,
+    opacity: theme.ball.glowOpacity,
     side: THREE.BackSide,
   });
   glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
@@ -47,11 +49,9 @@ export function createBall(scene) {
 }
 
 /**
- * Build a blood-stream trail from tracked positions.
- * Main ribbon is dark red with irregular edges + drip particles falling off.
+ * Build a blood-stream trail (horror) or sparkle/glitter trail (christmas).
  */
 function buildTrailMesh(points) {
-  // Clean up old trail
   if (trailMesh) {
     trailScene.remove(trailMesh);
     trailMesh.geometry.dispose();
@@ -61,6 +61,7 @@ function buildTrailMesh(points) {
 
   if (points.length < 2) return;
 
+  const theme = getTheme();
   const TRAIL_WIDTH = BALL_RADIUS * 0.7;
   const positions = [];
   const alphas = [];
@@ -83,16 +84,13 @@ function buildTrailMesh(points) {
       side.crossVectors(tangent, new THREE.Vector3(0, 0, 1)).normalize();
     }
 
-    // Irregular width — simulate dripping/streaming blood
+    // Width and wobble
     const baseWidth = TRAIL_WIDTH * t;
-    // Add sine-wave wobble + random-looking variation using position-based noise
     const wobble = Math.sin(i * 1.7) * 0.3 + Math.sin(i * 3.1) * 0.15;
     const width = baseWidth * (0.7 + wobble * 0.3 + t * 0.3);
 
     const p = points[i];
-
-    // Offset the trail slightly downward to simulate dripping gravity
-    const dripOffset = (1 - t) * 0.02; // tail hangs lower
+    const dripOffset = (1 - t) * 0.02;
 
     positions.push(
       p.x - side.x * width, p.y - side.y * width - dripOffset, p.z - side.z * width,
@@ -115,6 +113,9 @@ function buildTrailMesh(points) {
   geom.setAttribute('alpha', new THREE.Float32BufferAttribute(alphas, 1));
   geom.setIndex(indices);
 
+  const headColor = theme.ball.trailColors.head;
+  const tailColor = theme.ball.trailColors.tail;
+
   const mat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -129,14 +130,17 @@ function buildTrailMesh(points) {
     `,
     fragmentShader: `
       varying float vAlpha;
+      uniform vec3 headColor;
+      uniform vec3 tailColor;
       void main() {
-        // Dark blood red with slight color variation along alpha
-        float r = 0.45 + vAlpha * 0.15;
-        float g = 0.02 + vAlpha * 0.03;
-        float b = 0.02;
-        gl_FragColor = vec4(r, g, b, vAlpha);
+        vec3 color = mix(tailColor, headColor, vAlpha);
+        gl_FragColor = vec4(color, vAlpha);
       }
     `,
+    uniforms: {
+      headColor: { value: new THREE.Vector3(headColor[0], headColor[1], headColor[2]) },
+      tailColor: { value: new THREE.Vector3(tailColor[0], tailColor[1], tailColor[2]) },
+    },
   });
 
   trailMesh = new THREE.Mesh(geom, mat);
@@ -144,18 +148,25 @@ function buildTrailMesh(points) {
 }
 
 /**
- * Spawn small blood drip particles that fall off the trail.
+ * Spawn drip particles — blood drips (horror) or sparkle/snowflake bits (christmas).
  */
 function spawnDrips(x, y, z) {
-  // Only spawn every few frames to keep count low
   if (Math.random() > 0.35) return;
 
-  const size = 0.008 + Math.random() * 0.012;
+  const theme = getTheme();
+  const dc = theme.ball.dripColor;
+  const isSparkle = theme.ball.trailStyle === 'sparkle';
+
+  const size = isSparkle ? (0.006 + Math.random() * 0.01) : (0.008 + Math.random() * 0.012);
   const geom = new THREE.SphereGeometry(size, 4, 4);
   const mat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(0.35 + Math.random() * 0.2, 0, 0.01),
+    color: new THREE.Color(
+      dc.r + (Math.random() - 0.5) * 0.1,
+      dc.g + (Math.random() - 0.5) * 0.05,
+      dc.b + (Math.random() - 0.5) * 0.05
+    ),
     transparent: true,
-    opacity: 0.8,
+    opacity: isSparkle ? 0.6 : 0.8,
   });
   const drip = new THREE.Mesh(geom, mat);
   drip.position.set(
@@ -163,11 +174,21 @@ function spawnDrips(x, y, z) {
     y - BALL_RADIUS * 0.5,
     z + (Math.random() - 0.5) * BALL_RADIUS
   );
-  drip.userData.vy = -0.5 - Math.random() * 1.5; // falling speed
-  drip.userData.vx = (Math.random() - 0.5) * 0.3;
-  drip.userData.vz = (Math.random() - 0.5) * 0.3;
+
+  if (isSparkle) {
+    // Sparkle: slower, floatier drift
+    drip.userData.vy = -0.2 - Math.random() * 0.5;
+    drip.userData.vx = (Math.random() - 0.5) * 0.5;
+    drip.userData.vz = (Math.random() - 0.5) * 0.5;
+    drip.userData.decay = 0.025 + Math.random() * 0.02;
+  } else {
+    // Blood: heavier, faster falling
+    drip.userData.vy = -0.5 - Math.random() * 1.5;
+    drip.userData.vx = (Math.random() - 0.5) * 0.3;
+    drip.userData.vz = (Math.random() - 0.5) * 0.3;
+    drip.userData.decay = 0.02 + Math.random() * 0.02;
+  }
   drip.userData.life = 1.0;
-  drip.userData.decay = 0.02 + Math.random() * 0.02;
 
   trailScene.add(drip);
   dripMeshes.push(drip);
@@ -177,6 +198,9 @@ function spawnDrips(x, y, z) {
  * Update drip particles (call every frame).
  */
 function updateDrips() {
+  const theme = getTheme();
+  const gravity = theme.ball.dripGravity; // negative value (e.g. -3.0 or -1.5)
+
   for (let i = dripMeshes.length - 1; i >= 0; i--) {
     const d = dripMeshes[i];
     d.userData.life -= d.userData.decay;
@@ -192,7 +216,7 @@ function updateDrips() {
     d.position.x += d.userData.vx * 0.016;
     d.position.y += d.userData.vy * 0.016;
     d.position.z += d.userData.vz * 0.016;
-    d.userData.vy -= 3.0 * 0.016; // gravity on drips
+    d.userData.vy += gravity * 0.016; // gravity pulls down (value is negative)
     d.material.opacity = d.userData.life * 0.8;
     const s = 0.5 + d.userData.life * 0.5;
     d.scale.set(s, s, s);
@@ -205,7 +229,6 @@ export function showBall(x, y, z) {
   ballGroup.visible = true;
   trailPoints = [];
   prevPos = null;
-  // Reset ball stretch
   if (ballMesh) ballMesh.scale.set(1, 1, 1);
 }
 
@@ -213,19 +236,17 @@ export function updateBallPosition(x, y, z) {
   if (!ballGroup) return;
   ballGroup.position.set(x, y, z);
 
-  // Motion stretch — squash ball along velocity direction for speed perception
+  // Motion stretch
   if (ballMesh && prevPos) {
     const dx = x - prevPos.x;
     const dy = y - prevPos.y;
     const dz = z - prevPos.z;
     const speed = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    // Stretch factor: scales with speed, capped
     const stretch = Math.min(1 + speed * 8, 1.8);
-    const squash = 1 / Math.sqrt(stretch); // preserve volume
+    const squash = 1 / Math.sqrt(stretch);
 
     if (speed > 0.001) {
-      // Align stretch with velocity direction
       const dir = new THREE.Vector3(dx, dy, dz).normalize();
       const quat = new THREE.Quaternion();
       quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
@@ -245,10 +266,7 @@ export function updateBallPosition(x, y, z) {
     buildTrailMesh(trailPoints);
   }
 
-  // Spawn blood drips from the ball
   spawnDrips(x, y, z);
-
-  // Update existing drips
   updateDrips();
 }
 
@@ -266,7 +284,6 @@ export function hideBall() {
     trailMesh.material.dispose();
     trailMesh = null;
   }
-  // Clean up drips
   for (const d of dripMeshes) {
     if (trailScene) trailScene.remove(d);
     d.geometry.dispose();

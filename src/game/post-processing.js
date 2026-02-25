@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { getTheme } from '../shared/themes.js';
 
 let composer = null;
 
@@ -38,6 +39,8 @@ const VignetteShader = {
 };
 
 export function initPostProcessing(renderer, scene, camera) {
+  const theme = getTheme();
+  const pp = theme.postProcessing;
   const size = renderer.getSize(new THREE.Vector2());
 
   composer = new EffectComposer(renderer);
@@ -46,17 +49,19 @@ export function initPostProcessing(renderer, scene, camera) {
   const renderPass = new RenderPass(scene, camera);
   composer.addPass(renderPass);
 
-  // Bloom — subtle glow on emissive surfaces (ball, gore highlights, particles)
+  // Bloom — theme-driven strength/radius/threshold
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(size.x, size.y),
-    0.35,  // strength — subtle
-    0.5,   // radius
-    0.72   // threshold — only bright things bloom
+    pp.bloomStrength,
+    pp.bloomRadius,
+    pp.bloomThreshold
   );
   composer.addPass(bloomPass);
 
-  // Vignette — dark edges for horror framing
+  // Vignette — theme-driven darkness/offset
   const vignettePass = new ShaderPass(VignetteShader);
+  vignettePass.uniforms.darkness.value = pp.vignetteDarkness;
+  vignettePass.uniforms.offset.value = pp.vignetteOffset;
   composer.addPass(vignettePass);
 
   // Output pass (tone mapping + color space)

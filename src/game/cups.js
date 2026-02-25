@@ -3,13 +3,12 @@ import {
   CUP_TOP_RADIUS,
   CUP_BOTTOM_RADIUS,
   CUP_HEIGHT,
-  CUP_SPACING,
   CUP_ROWS,
-  PLAYER_COLORS,
   PLAYER_ANGLES,
   PLAYER_DISTANCE,
   CUPS_PER_PLAYER,
 } from '../shared/constants.js';
+import { getTheme } from '../shared/themes.js';
 
 // Cups packed tight — rims nearly touching (like real beer pong / Game Pigeon)
 const rowSpacing = CUP_TOP_RADIUS * 2 + 0.01;
@@ -19,15 +18,12 @@ const rowSpacing = CUP_TOP_RADIUS * 2 + 0.01;
 function generatePlayerPositions(playerIndex) {
   const angle = PLAYER_ANGLES[playerIndex];
 
-  // Player's base position on the table edge
   const baseX = Math.cos(angle) * PLAYER_DISTANCE;
   const baseZ = -Math.sin(angle) * PLAYER_DISTANCE;
 
-  // Direction from player toward center (unit vector)
   const towardCenterX = -Math.cos(angle);
   const towardCenterZ = Math.sin(angle);
 
-  // Perpendicular direction (for spreading cups in a row)
   const perpX = -towardCenterZ;
   const perpZ = towardCenterX;
 
@@ -38,8 +34,6 @@ function generatePlayerPositions(playerIndex) {
     const cupsInRow = CUP_ROWS[row];
     const rowWidth = (cupsInRow - 1) * rowSpacing;
 
-    // Row 0 (1 cup, tip) is farthest from player (toward center)
-    // Row 4 (5 cups, base) is closest to player
     const depthOffset = totalDepth - row * rowSpacing;
 
     for (let col = 0; col < cupsInRow; col++) {
@@ -62,7 +56,6 @@ const allPlayerPositions = [
   generatePlayerPositions(2),
 ];
 
-// Get the center of a player's cup triangle in world coordinates
 export function getCupTriangleCenter(playerIndex) {
   const positions = allPlayerPositions[playerIndex];
   let avgX = 0, avgZ = 0;
@@ -76,7 +69,6 @@ export function getCupTriangleCenter(playerIndex) {
   return { x: avgX, y: CUP_HEIGHT / 2, z: avgZ };
 }
 
-// Get the world position for a specific cup
 export function getCupWorldPosition(playerIndex, cupIndex) {
   const positions = allPlayerPositions[playerIndex];
   if (!positions[cupIndex]) return null;
@@ -84,25 +76,23 @@ export function getCupWorldPosition(playerIndex, cupIndex) {
 }
 
 export function createCups(scene) {
-  const cupMeshes = []; // [playerIndex][cupIndex] = mesh
+  const theme = getTheme();
+  const cupColors = theme.cups.playerColors;
+  const cupMeshes = [];
 
-  // Shared cup geometry — higher poly for smoother look
+  // Shared cup geometry
   const cupGeometry = new THREE.CylinderGeometry(
     CUP_TOP_RADIUS,
     CUP_BOTTOM_RADIUS,
     CUP_HEIGHT,
     24,
     1,
-    true // open ended
+    true
   );
 
-  // Bottom disc
   const bottomGeometry = new THREE.CircleGeometry(CUP_BOTTOM_RADIUS, 24);
-
-  // Rim torus at the top of each cup
   const rimGeometry = new THREE.TorusGeometry(CUP_TOP_RADIUS, 0.008, 8, 24);
 
-  // Inner shell (visible through open top)
   const innerGeometry = new THREE.CylinderGeometry(
     CUP_TOP_RADIUS * 0.94,
     CUP_BOTTOM_RADIUS * 0.94,
@@ -112,35 +102,34 @@ export function createCups(scene) {
     true
   );
   const innerMaterial = new THREE.MeshStandardMaterial({
-    color: 0x1a0808,
+    color: theme.cups.innerColor,
     roughness: 0.95,
     side: THREE.BackSide,
   });
 
-  // Liquid surface — golden amber beer
+  // Liquid surface — theme-driven (beer or hot cocoa)
   const liquidGeometry = new THREE.CircleGeometry(CUP_TOP_RADIUS * 0.85, 24);
   const liquidMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0xcc8822,
+    color: theme.cups.liquidColor,
     roughness: 0.1,
     metalness: 0.0,
     clearcoat: 0.8,
     clearcoatRoughness: 0.1,
     transparent: true,
-    opacity: 0.85,
+    opacity: theme.cups.liquidOpacity,
   });
 
   for (let pi = 0; pi < 3; pi++) {
     const playerCups = [];
-    const cupColor = PLAYER_COLORS[pi];
+    const cupColor = cupColors[pi];
 
-    // Glossy cup material — Solo cup style with clearcoat
     const cupMaterial = new THREE.MeshPhysicalMaterial({
       color: cupColor,
       emissive: cupColor,
       emissiveIntensity: 0.08,
       roughness: 0.35,
       metalness: 0.0,
-      clearcoat: 0.3,
+      clearcoat: theme.cups.clearcoat,
       clearcoatRoughness: 0.4,
     });
     const bottomMaterial = new THREE.MeshStandardMaterial({
@@ -149,7 +138,6 @@ export function createCups(scene) {
       emissiveIntensity: 0.05,
       roughness: 0.5,
     });
-    // Slightly brighter rim
     const rimMaterial = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(cupColor).multiplyScalar(1.3),
       roughness: 0.25,
@@ -165,28 +153,23 @@ export function createCups(scene) {
       const group = new THREE.Group();
       group.position.set(pos.x, pos.y, pos.z);
 
-      // Outer shell
       const cup = new THREE.Mesh(cupGeometry, cupMaterial);
       cup.castShadow = true;
       group.add(cup);
 
-      // Inner shell
       const inner = new THREE.Mesh(innerGeometry, innerMaterial);
       group.add(inner);
 
-      // Rim at top of cup
       const rim = new THREE.Mesh(rimGeometry, rimMaterial);
       rim.rotation.x = Math.PI / 2;
       rim.position.y = CUP_HEIGHT / 2;
       group.add(rim);
 
-      // Bottom
       const bottom = new THREE.Mesh(bottomGeometry, bottomMaterial);
       bottom.rotation.x = -Math.PI / 2;
       bottom.position.y = -CUP_HEIGHT / 2;
       group.add(bottom);
 
-      // Liquid surface
       const liquid = new THREE.Mesh(liquidGeometry, liquidMaterial);
       liquid.rotation.x = -Math.PI / 2;
       liquid.position.y = CUP_HEIGHT * 0.3;
@@ -203,12 +186,10 @@ export function createCups(scene) {
 }
 
 export function repositionCups(cupMeshes, scene, playerIndex, newWorldPositions) {
-  // newWorldPositions is array of {x, z} for each ACTIVE cup
-  // Map active cups to new positions
   let posIdx = 0;
   for (let ci = 0; ci < CUPS_PER_PLAYER; ci++) {
     const mesh = cupMeshes[playerIndex][ci];
-    if (!mesh) continue; // cup already removed
+    if (!mesh) continue;
     if (posIdx >= newWorldPositions.length) break;
     const pos = newWorldPositions[posIdx];
     mesh.position.set(pos.x, CUP_HEIGHT / 2, pos.z);
@@ -220,7 +201,6 @@ export function removeCup(cupMeshes, scene, playerIndex, cupIndex) {
   const mesh = cupMeshes[playerIndex][cupIndex];
   if (!mesh) return;
 
-  // Animate: scale down and fade
   const startScale = mesh.scale.x;
   const duration = 400;
   const startTime = Date.now();
@@ -228,7 +208,7 @@ export function removeCup(cupMeshes, scene, playerIndex, cupIndex) {
   function animate() {
     const elapsed = Date.now() - startTime;
     const progress = Math.min(elapsed / duration, 1);
-    const eased = 1 - Math.pow(1 - progress, 3); // ease out cubic
+    const eased = 1 - Math.pow(1 - progress, 3);
 
     const scale = startScale * (1 - eased);
     mesh.scale.set(scale, scale, scale);
