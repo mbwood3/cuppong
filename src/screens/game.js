@@ -62,7 +62,11 @@ export function startGame(canvasContainer, uiOverlay, initialGameState, playerIn
   cupMeshes = createCups(scene);
   createBall(scene);
   initPhysics();
-  goreSystem = addGoreProps(scene, getWorld(), showEyeballReaction);
+  try {
+    goreSystem = addGoreProps(scene, getWorld(), showEyeballReaction);
+  } catch (e) {
+    console.error('Gore props failed to load:', e);
+  }
   initThrowControls(renderer.domElement, scene);
   initCameraController(camera);
   initHitEffects(scene);

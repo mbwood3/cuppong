@@ -485,6 +485,7 @@ function createSeveredHand(scene, x, z, rotY = 0) {
 
 function createSeveredHead(scene, x, z) {
   const group = new THREE.Group();
+  const fm = fleshMat(C.FLESH, 0.6);
 
   // Cranium — higher subdivision for organic look
   const craniumGeo = new THREE.SphereGeometry(0.5, SPHERE_SEG + 8, SPHERE_SEG + 4);
@@ -773,7 +774,6 @@ function createLiver(scene, x, z) {
 
 function createForearm(scene, x, z, rotY = 0) {
   const group = new THREE.Group();
-  const fm = fleshMat(C.FLESH, 0.5);
 
   // Arm shaft — more segments for organic deformation
   const armGeo = new THREE.CylinderGeometry(0.1, 0.12, 0.8, CYL_SEG + 6, 8);
