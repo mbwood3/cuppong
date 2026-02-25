@@ -429,30 +429,87 @@ function makeTube(points, radius = 0.015, mat = null) {
 }
 
 function addStump(group, pos, radius, boneRadius, rotation = null) {
-  // Layered cross-section: flesh ring → fat ring → muscle fill → bone center
-  const layers = [
-    { inner: radius * 0.85, outer: radius, mat: fleshMat() },
-    { inner: radius * 0.65, outer: radius * 0.85, mat: fleshMat(C.FAT, 0.3) },
-  ];
-  for (const l of layers) {
-    const ring = new THREE.Mesh(new THREE.RingGeometry(l.inner, l.outer, 12), l.mat);
-    ring.position.copy(pos);
-    if (rotation) ring.rotation.copy(rotation);
-    else ring.rotation.x = -Math.PI / 2;
-    group.add(ring);
+  const rot = rotation || new THREE.Euler(-Math.PI / 2, 0, 0);
+  const segments = 16;
+
+  // Jagged outer flesh ring — irregular radius per vertex
+  const outerShape = new THREE.Shape();
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const jag = radius * (0.85 + Math.random() * 0.3); // 0.85-1.15 of radius
+    const px = Math.cos(angle) * jag;
+    const py = Math.sin(angle) * jag;
+    if (i === 0) outerShape.moveTo(px, py);
+    else outerShape.lineTo(px, py);
   }
-  const muscle = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.65, 12), organMat(C.MUSCLE));
+  // Cut hole for inner layers
+  const holePath = new THREE.Path();
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const px = Math.cos(angle) * radius * 0.7;
+    const py = Math.sin(angle) * radius * 0.7;
+    if (i === 0) holePath.moveTo(px, py);
+    else holePath.lineTo(px, py);
+  }
+  outerShape.holes.push(holePath);
+  const fleshRing = new THREE.Mesh(new THREE.ShapeGeometry(outerShape), fleshMat(C.FLESH, 0.6));
+  fleshRing.position.copy(pos);
+  fleshRing.rotation.copy(rot);
+  group.add(fleshRing);
+
+  // Fat layer — yellowish ring
+  const fatShape = new THREE.Shape();
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const px = Math.cos(angle) * radius * 0.7;
+    const py = Math.sin(angle) * radius * 0.7;
+    if (i === 0) fatShape.moveTo(px, py);
+    else fatShape.lineTo(px, py);
+  }
+  const fatHole = new THREE.Path();
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const px = Math.cos(angle) * radius * 0.55;
+    const py = Math.sin(angle) * radius * 0.55;
+    if (i === 0) fatHole.moveTo(px, py);
+    else fatHole.lineTo(px, py);
+  }
+  fatShape.holes.push(fatHole);
+  const fatRing = new THREE.Mesh(new THREE.ShapeGeometry(fatShape), fleshMat(C.FAT, 0.2));
+  fatRing.position.copy(pos);
+  fatRing.position.y += 0.001;
+  fatRing.rotation.copy(rot);
+  group.add(fatRing);
+
+  // Muscle core
+  const muscle = new THREE.Mesh(
+    new THREE.CircleGeometry(radius * 0.55, segments),
+    organMat(C.MUSCLE, 0.9)
+  );
   muscle.position.copy(pos);
-  if (rotation) muscle.rotation.copy(rotation);
-  else muscle.rotation.x = -Math.PI / 2;
+  muscle.position.y += 0.002;
+  muscle.rotation.copy(rot);
   group.add(muscle);
 
+  // Bone center
   const bone = new THREE.Mesh(new THREE.CircleGeometry(boneRadius, 8), boneMat());
   bone.position.copy(pos);
-  if (rotation) bone.rotation.copy(rotation);
-  else bone.rotation.x = -Math.PI / 2;
-  bone.position.y += 0.001;
+  bone.position.y += 0.003;
+  bone.rotation.copy(rot);
   group.add(bone);
+
+  // Dangling flesh strips — hanging down from the edge
+  for (let i = 0; i < 4; i++) {
+    const angle = (i / 4) * Math.PI * 2 + Math.random() * 0.8;
+    const r = radius * (0.8 + Math.random() * 0.2);
+    const hangLen = 0.04 + Math.random() * 0.08;
+    const pts = [
+      new THREE.Vector3(pos.x + Math.cos(angle) * r * 0.6, pos.y, pos.z + Math.sin(angle) * r * 0.6),
+      new THREE.Vector3(pos.x + Math.cos(angle) * r * 0.7, pos.y - hangLen * 0.4, pos.z + Math.sin(angle) * r * 0.7),
+      new THREE.Vector3(pos.x + Math.cos(angle) * r * 0.65, pos.y - hangLen, pos.z + Math.sin(angle) * r * 0.65),
+    ];
+    group.add(makeTube(pts, 0.006 + Math.random() * 0.006, fleshMat(C.FLESH, 0.7)));
+  }
 
   // Blood drips
   for (let i = 0; i < 3; i++) {
