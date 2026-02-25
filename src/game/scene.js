@@ -4,11 +4,6 @@ import { CAMERA_FOV } from '../shared/constants.js';
 let scene, camera, renderer;
 let animationCallbacks = [];
 
-// Detect mobile/tablet devices for performance tuning
-const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
-  navigator.userAgent
-) || (navigator.maxTouchPoints > 0 && window.innerWidth < 1024);
-
 export function initScene(container) {
   scene = new THREE.Scene();
 
@@ -26,19 +21,15 @@ export function initScene(container) {
   camera.lookAt(0, 0, 0);
 
   renderer = new THREE.WebGLRenderer({
-    antialias: !isMobile,
+    antialias: false, // off for iPhone performance
     alpha: false,
     powerPreference: 'high-performance',
   });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-  if (isMobile) {
-    renderer.shadowMap.enabled = false;
-  } else {
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  }
+  // Shadows off for iPhone performance
+  renderer.shadowMap.enabled = false;
 
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.3;
@@ -48,35 +39,17 @@ export function initScene(container) {
   // --- Lighting ---
 
   // Warm ambient — slight orange tint for party feel
-  const ambientLight = new THREE.AmbientLight(0xffeedd, isMobile ? 0.6 : 0.45);
+  const ambientLight = new THREE.AmbientLight(0xffeedd, 0.5);
   scene.add(ambientLight);
 
   // Main overhead directional — warm white
   const directionalLight = new THREE.DirectionalLight(0xfff0e0, 1.2);
   directionalLight.position.set(1, 10, 2);
-
-  if (!isMobile) {
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 1024;
-    directionalLight.shadow.mapSize.height = 1024;
-    directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 30;
-    directionalLight.shadow.camera.left = -12;
-    directionalLight.shadow.camera.right = 12;
-    directionalLight.shadow.camera.top = 12;
-    directionalLight.shadow.camera.bottom = -12;
-    directionalLight.shadow.bias = -0.001;
-  }
   scene.add(directionalLight);
 
   // Warm overhead point light — creates dramatic cup highlights
   const overheadPoint = new THREE.PointLight(0xffcc88, 0.8, 25);
   overheadPoint.position.set(0, 8, 0);
-  if (!isMobile) {
-    overheadPoint.castShadow = true;
-    overheadPoint.shadow.mapSize.width = 512;
-    overheadPoint.shadow.mapSize.height = 512;
-  }
   scene.add(overheadPoint);
 
   // Subtle rim/fill light from below table edge — highlights cup bottoms
@@ -93,7 +66,7 @@ export function initScene(container) {
   coolAccent.position.set(-8, 3, 5);
   scene.add(coolAccent);
 
-  // Handle resize (desktop + iOS orientation changes)
+  // Handle resize (iOS orientation changes)
   function handleResize() {
     camera.aspect = container.clientWidth / container.clientHeight;
     camera.updateProjectionMatrix();
@@ -140,4 +113,3 @@ export function removeAnimateCallback(callback) {
 export function getScene() { return scene; }
 export function getCamera() { return camera; }
 export function getRenderer() { return renderer; }
-export function getIsMobile() { return isMobile; }

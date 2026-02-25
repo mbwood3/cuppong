@@ -30,14 +30,10 @@ let rimMaterial = null;
 let ballRimContact = null;
 
 export function initPhysics() {
-  const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
-    navigator.userAgent
-  );
-
   world = new CANNON.World({
     gravity: new CANNON.Vec3(0, GRAVITY, 0),
   });
-  world.solver.iterations = isMobile ? 5 : 10;
+  world.solver.iterations = 8; // tuned for iPhone performance
   world.broadphase = new CANNON.SAPBroadphase(world);
   world.allowSleep = false;
 

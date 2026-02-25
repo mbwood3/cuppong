@@ -9,16 +9,11 @@ import {
 } from '../shared/constants.js';
 import { getBallMaterial } from './physics.js';
 
-// ─── Mobile detection ───
-const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
-  navigator.userAgent
-) || (navigator.maxTouchPoints > 0 && window.innerWidth < 1024);
-
-// ─── Detail levels ───
-const SPHERE_SEG = isMobile ? 10 : 20;
-const CYL_SEG = isMobile ? 6 : 10;
-const TUBE_SEG = isMobile ? 24 : 48;
-const TUBE_RAD = isMobile ? 5 : 8;
+// ─── Detail levels (optimized for iPhone) ───
+const SPHERE_SEG = 18;
+const CYL_SEG = 10;
+const TUBE_SEG = 40;
+const TUBE_RAD = 8;
 
 // ─── Color palette ───
 const C = {
@@ -127,9 +122,9 @@ function fleshMat(color = C.FLESH, wetness = 0.5) {
     color,
     roughness: 0.7 - wetness * 0.4,
     metalness: 0.0,
-    clearcoat: isMobile ? wetness * 0.15 : wetness * 0.3,
+    clearcoat: wetness * 0.3,
     clearcoatRoughness: 0.4,
-    sheen: isMobile ? 0.15 : 0.3,
+    sheen: 0.3,
     sheenRoughness: 0.5,
     sheenColor: new THREE.Color(0xff6644),
   });
@@ -140,9 +135,9 @@ function organMat(color = C.ORGAN_RED, wetness = 0.8) {
     color,
     roughness: 0.2,
     metalness: 0.0,
-    clearcoat: isMobile ? 0.3 : 0.6,
+    clearcoat: 0.6,
     clearcoatRoughness: 0.15,
-    sheen: isMobile ? 0.25 : 0.5,
+    sheen: 0.5,
     sheenRoughness: 0.3,
     sheenColor: new THREE.Color(0xff4422),
   });
@@ -209,16 +204,14 @@ function addStump(group, pos, radius, boneRadius, rotation = null) {
   group.add(bone);
 
   // Blood drips
-  if (!isMobile) {
-    for (let i = 0; i < 3; i++) {
-      const angle = (i / 3) * Math.PI * 2 + Math.random();
-      const dripPoints = [
-        new THREE.Vector3(pos.x + Math.cos(angle) * radius * 0.4, pos.y, pos.z + Math.sin(angle) * radius * 0.4),
-        new THREE.Vector3(pos.x + Math.cos(angle) * radius * 0.5, pos.y - 0.05, pos.z + Math.sin(angle) * radius * 0.5),
-        new THREE.Vector3(pos.x + Math.cos(angle) * radius * 0.45, pos.y - 0.1, pos.z + Math.sin(angle) * radius * 0.45),
-      ];
-      group.add(makeTube(dripPoints, 0.008, bloodMat(false)));
-    }
+  for (let i = 0; i < 3; i++) {
+    const angle = (i / 3) * Math.PI * 2 + Math.random();
+    const dripPoints = [
+      new THREE.Vector3(pos.x + Math.cos(angle) * radius * 0.4, pos.y, pos.z + Math.sin(angle) * radius * 0.4),
+      new THREE.Vector3(pos.x + Math.cos(angle) * radius * 0.5, pos.y - 0.05, pos.z + Math.sin(angle) * radius * 0.5),
+      new THREE.Vector3(pos.x + Math.cos(angle) * radius * 0.45, pos.y - 0.1, pos.z + Math.sin(angle) * radius * 0.45),
+    ];
+    group.add(makeTube(dripPoints, 0.008, bloodMat(false)));
   }
 }
 
@@ -352,8 +345,8 @@ function createEyeball(scene, x, z) {
 
   const eyeGeo = new THREE.SphereGeometry(0.12, SPHERE_SEG, SPHERE_SEG);
   const eyeMat = new THREE.MeshPhysicalMaterial({
-    color: 0xf5f0e0, roughness: isMobile ? 0.25 : 0.15, metalness: 0.05,
-    clearcoat: isMobile ? 0.4 : 0.8, clearcoatRoughness: 0.1,
+    color: 0xf5f0e0, roughness: 0.15, metalness: 0.05,
+    clearcoat: 0.8, clearcoatRoughness: 0.1,
   });
   const eye = new THREE.Mesh(eyeGeo, eyeMat);
   eye.position.y = 0.12;
@@ -376,20 +369,18 @@ function createEyeball(scene, x, z) {
   group.add(pupil);
 
   // Blood veins
-  if (!isMobile) {
-    for (let i = 0; i < 5; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const veinPts = [];
-      for (let j = 0; j < 4; j++) {
-        const t = j / 3;
-        veinPts.push(new THREE.Vector3(
-          Math.cos(a + t * 0.3) * (0.06 + t * 0.04),
-          0.12 + Math.sin(a * 2 + t) * 0.04,
-          Math.sin(a + t * 0.3) * (0.06 + t * 0.04)
-        ));
-      }
-      group.add(makeTube(veinPts, 0.003, new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.6 })));
+  for (let i = 0; i < 5; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const veinPts = [];
+    for (let j = 0; j < 4; j++) {
+      const t = j / 3;
+      veinPts.push(new THREE.Vector3(
+        Math.cos(a + t * 0.3) * (0.06 + t * 0.04),
+        0.12 + Math.sin(a * 2 + t) * 0.04,
+        Math.sin(a + t * 0.3) * (0.06 + t * 0.04)
+      ));
     }
+    group.add(makeTube(veinPts, 0.003, new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.6 })));
   }
 
   // Optic nerve
@@ -544,17 +535,15 @@ function createSeveredHead(scene, x, z) {
   group.add(spine);
 
   // Dangling tendons
-  if (!isMobile) {
-    for (let i = 0; i < 4; i++) {
-      const angle = (i / 4) * Math.PI * 2 + Math.random() * 0.5;
-      const r = 0.12 + Math.random() * 0.08;
-      const pts = [
-        new THREE.Vector3(Math.cos(angle) * r, 0.05, Math.sin(angle) * r),
-        new THREE.Vector3(Math.cos(angle) * r * 1.1, -0.03, Math.sin(angle) * r * 1.1),
-        new THREE.Vector3(Math.cos(angle) * r * 0.9, -0.08, Math.sin(angle) * r * 1.2),
-      ];
-      group.add(makeTube(pts, 0.01, organMat(C.MUSCLE, 0.7)));
-    }
+  for (let i = 0; i < 4; i++) {
+    const angle = (i / 4) * Math.PI * 2 + Math.random() * 0.5;
+    const r = 0.12 + Math.random() * 0.08;
+    const pts = [
+      new THREE.Vector3(Math.cos(angle) * r, 0.05, Math.sin(angle) * r),
+      new THREE.Vector3(Math.cos(angle) * r * 1.1, -0.03, Math.sin(angle) * r * 1.1),
+      new THREE.Vector3(Math.cos(angle) * r * 0.9, -0.08, Math.sin(angle) * r * 1.2),
+    ];
+    group.add(makeTube(pts, 0.01, organMat(C.MUSCLE, 0.7)));
   }
 
   // Ears on the head
@@ -670,23 +659,21 @@ function createBrain(scene, x, z) {
   group.add(brain);
 
   // Wrinkle ribbons (sulci)
-  if (!isMobile) {
-    for (let i = 0; i < 7; i++) {
-      const ribbonPts = [];
-      const startAngle = (i / 7) * Math.PI;
-      for (let j = 0; j < 8; j++) {
-        const t = j / 7;
-        const theta = startAngle + (Math.random() - 0.5) * 0.3;
-        const phi = t * Math.PI;
-        const r = 0.155;
-        ribbonPts.push(new THREE.Vector3(
-          r * Math.sin(phi) * Math.cos(theta),
-          r * Math.cos(phi) * 0.75 + 0.12,
-          r * Math.sin(phi) * Math.sin(theta) * 0.85
-        ));
-      }
-      group.add(makeTube(ribbonPts, 0.008, organMat(0xbb6666, 0.6)));
+  for (let i = 0; i < 7; i++) {
+    const ribbonPts = [];
+    const startAngle = (i / 7) * Math.PI;
+    for (let j = 0; j < 8; j++) {
+      const t = j / 7;
+      const theta = startAngle + (Math.random() - 0.5) * 0.3;
+      const phi = t * Math.PI;
+      const r = 0.155;
+      ribbonPts.push(new THREE.Vector3(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.cos(phi) * 0.75 + 0.12,
+        r * Math.sin(phi) * Math.sin(theta) * 0.85
+      ));
     }
+    group.add(makeTube(ribbonPts, 0.008, organMat(0xbb6666, 0.6)));
   }
 
   // Hemisphere fissure
@@ -788,17 +775,15 @@ function createForearm(scene, x, z, rotY = 0) {
   }
 
   // Veins along surface
-  if (!isMobile) {
-    for (let i = 0; i < 3; i++) {
-      const zOff = (i - 1) * 0.06;
-      const pts = [
-        new THREE.Vector3(-0.2, 0.17, zOff),
-        new THREE.Vector3(0.0, 0.18, zOff + 0.02),
-        new THREE.Vector3(0.2, 0.17, zOff - 0.01),
-        new THREE.Vector3(0.35, 0.16, zOff + 0.01),
-      ];
-      group.add(makeTube(pts, 0.004, new THREE.MeshStandardMaterial({ color: C.VEIN_BLUE, roughness: 0.5 })));
-    }
+  for (let i = 0; i < 3; i++) {
+    const zOff = (i - 1) * 0.06;
+    const pts = [
+      new THREE.Vector3(-0.2, 0.17, zOff),
+      new THREE.Vector3(0.0, 0.18, zOff + 0.02),
+      new THREE.Vector3(0.2, 0.17, zOff - 0.01),
+      new THREE.Vector3(0.35, 0.16, zOff + 0.01),
+    ];
+    group.add(makeTube(pts, 0.004, new THREE.MeshStandardMaterial({ color: C.VEIN_BLUE, roughness: 0.5 })));
   }
 
   createBloodPuddle(scene, x, z, 0.9);
@@ -949,15 +934,13 @@ function createTongue(scene, x, z, rotY = 0) {
   group.add(root);
 
   // Tendon roots
-  if (!isMobile) {
-    for (let i = 0; i < 2; i++) {
-      const pts = [
-        new THREE.Vector3((i - 0.5) * 0.02, 0.015, -0.12),
-        new THREE.Vector3((i - 0.5) * 0.03, -0.01, -0.15),
-        new THREE.Vector3((i - 0.5) * 0.025, -0.03, -0.16),
-      ];
-      group.add(makeTube(pts, 0.006, organMat(C.TENDON, 0.4)));
-    }
+  for (let i = 0; i < 2; i++) {
+    const pts = [
+      new THREE.Vector3((i - 0.5) * 0.02, 0.015, -0.12),
+      new THREE.Vector3((i - 0.5) * 0.03, -0.01, -0.15),
+      new THREE.Vector3((i - 0.5) * 0.025, -0.03, -0.16),
+    ];
+    group.add(makeTube(pts, 0.006, organMat(C.TENDON, 0.4)));
   }
 
   createBloodPuddle(scene, x, z, 0.3);
