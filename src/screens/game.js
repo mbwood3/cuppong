@@ -890,7 +890,11 @@ function showHitText() {
   speakPhrase(phrase);
 
   const el = document.createElement('div');
-  el.textContent = phrase;
+  if (isSlut) {
+    el.innerHTML = '<div style="font-size:3.2rem;letter-spacing:0.3em;margin-bottom:-0.2em">CUP</div><div style="font-size:4.5rem">SLUT!</div>';
+  } else {
+    el.textContent = phrase;
+  }
   const fontSize = isSlut ? '4rem' : '3rem';
   const color = isSlut ? '#ff3366' : '#fff';
   const shadow = isSlut
@@ -899,7 +903,7 @@ function showHitText() {
   el.style.cssText = `
     position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%) scale(0.5);
     font-size: ${fontSize}; font-weight: 900; color: ${color}; text-shadow: ${shadow};
-    z-index: 30; pointer-events: none; opacity: 0;
+    z-index: 30; pointer-events: none; opacity: 0; text-align: center; line-height: 1;
     transition: transform 0.3s cubic-bezier(0.2, 1.5, 0.4, 1), opacity 0.3s ease-out;
   `;
   overlay.appendChild(el);
