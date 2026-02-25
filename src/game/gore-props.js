@@ -227,16 +227,16 @@ function addStump(group, pos, radius, boneRadius, rotation = null) {
 let propMaterial = null;
 function createPropBody(world, position, shape, mass = 0.5) {
   if (!propMaterial) {
-    propMaterial = new CANNON.Material({ friction: 0.6, restitution: 0.2 });
+    propMaterial = new CANNON.Material({ friction: 0.2, restitution: 0.05 });
     const bm = getBallMaterial();
     if (bm) {
       world.addContactMaterial(new CANNON.ContactMaterial(bm, propMaterial, {
-        friction: 0.3, restitution: 0.3,
+        friction: 0.1, restitution: 0.05, // ball plows through gore, barely slowed
       }));
     }
   }
   const body = new CANNON.Body({
-    mass,
+    mass: mass * 0.15, // very light so ball knocks them aside easily
     shape,
     material: propMaterial,
     position: new CANNON.Vec3(position.x, position.y, position.z),
@@ -245,7 +245,6 @@ function createPropBody(world, position, shape, mass = 0.5) {
     allowSleep: true,
     sleepSpeedLimit: 0.1,
     sleepTimeLimit: 1,
-    collisionResponse: false, // don't block the ball — events still fire for eyeball detection
   });
   world.addBody(body);
   return body;
