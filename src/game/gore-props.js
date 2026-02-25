@@ -356,18 +356,68 @@ function displaceVertices(geo, amount = 0.02, freq = 3.0) {
 }
 
 // Add per-vertex color variation to make surfaces look mottled/bruised
+// Add per-vertex color variation: bruises, veins, and blood pooling
 function addVertexColors(geo, baseColor, variation = 0.15) {
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
   const base = new THREE.Color(baseColor);
+  const bruise = new THREE.Color(C.BRUISE);
+  const vein = new THREE.Color(C.VEIN_BLUE);
+  const blood = new THREE.Color(C.DARK_BLOOD);
+
+  // Find Y range for blood pooling
+  let minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const yRange = maxY - minY || 1;
+
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    // Position-based color variation (looks like bruises/discoloration)
+
+    // Base noise variation
     const n = Math.sin(x * 7.3 + y * 5.1) * Math.cos(z * 6.7 + x * 3.2) * variation;
+
+    // Bruise patches — purple/yellow discoloration
+    const bruiseNoise = Math.sin(x * 3.1 + z * 2.7) * Math.cos(y * 4.3 + x * 1.9);
+    const bruiseStrength = bruiseNoise > 0.4 ? (bruiseNoise - 0.4) * 1.5 : 0;
+
+    // Vein lines — blue streaks along surface
+    const veinLine = Math.sin(x * 15 + y * 8) * Math.sin(z * 12 + y * 6);
+    const veinStrength = veinLine > 0.75 ? (veinLine - 0.75) * 3.0 : 0;
+
+    // Blood pooling — darker red in lower areas
+    const yNorm = (y - minY) / yRange; // 0=bottom, 1=top
+    const poolStrength = Math.max(0, (1 - yNorm) * 0.5 - 0.15);
+
+    // Dark spots
     const darkSpot = Math.sin(x * 13 + z * 11) > 0.7 ? -variation * 0.5 : 0;
-    colors[i * 3] = Math.max(0, Math.min(1, base.r + n + darkSpot));
-    colors[i * 3 + 1] = Math.max(0, Math.min(1, base.g + n * 0.5 + darkSpot));
-    colors[i * 3 + 2] = Math.max(0, Math.min(1, base.b + n * 0.3 + darkSpot));
+
+    // Blend: base + noise + bruise + vein + blood pool
+    let r = base.r + n + darkSpot;
+    let g = base.g + n * 0.5 + darkSpot;
+    let b = base.b + n * 0.3 + darkSpot;
+
+    // Mix in bruise color
+    r = r * (1 - bruiseStrength) + bruise.r * bruiseStrength;
+    g = g * (1 - bruiseStrength) + bruise.g * bruiseStrength;
+    b = b * (1 - bruiseStrength) + bruise.b * bruiseStrength;
+
+    // Mix in vein color
+    r = r * (1 - veinStrength) + vein.r * veinStrength;
+    g = g * (1 - veinStrength) + vein.g * veinStrength;
+    b = b * (1 - veinStrength) + vein.b * veinStrength;
+
+    // Mix in blood pooling
+    r = r * (1 - poolStrength) + blood.r * poolStrength;
+    g = g * (1 - poolStrength) + blood.g * poolStrength;
+    b = b * (1 - poolStrength) + blood.b * poolStrength;
+
+    colors[i * 3] = Math.max(0, Math.min(1, r));
+    colors[i * 3 + 1] = Math.max(0, Math.min(1, g));
+    colors[i * 3 + 2] = Math.max(0, Math.min(1, b));
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 }
