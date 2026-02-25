@@ -38,7 +38,7 @@ export const HORIZONTAL_SCALE = 0.003;
 export const FORWARD_SCALE = 0.006;
 export const ARC_SCALE = 0.0066;
 export const MIN_THROW_SPEED = 1.65;
-export const MAX_THROW_SPEED = 8.46;
+export const MAX_THROW_SPEED = 8.04;
 
 // Player colors (brighter for visibility on green table)
 export const PLAYER_COLORS = [
