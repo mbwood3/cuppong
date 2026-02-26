@@ -25,14 +25,23 @@ const io = new Server(httpServer, {
 // Parse JSON bodies for API
 app.use(express.json());
 
-// Serve static files from Vite build output
-app.use(express.static(path.join(__dirname, 'dist')));
+// Serve static files from Vite build output — no caching so deploys are instant
+app.use(express.static(path.join(__dirname, 'dist'), {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  },
+}));
 
 // API routes
 app.use('/api', apiRouter);
 
 // SPA fallback
 app.get('*', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
