@@ -160,12 +160,15 @@ function computeVelocity(start, end) {
 
   if (dist < MIN_SWIPE_DISTANCE) return null;
 
-  // Speed based on swipe velocity — quadratic curve so medium
-  // swipes hit middle rows, fast swipes reach back rows
-  const rawSpeed = (dist / dt) * 12.5;
-  const t = Math.min(rawSpeed / MAX_THROW_SPEED, 1); // 0-1 normalized
-  let speed = MIN_THROW_SPEED + (MAX_THROW_SPEED - MIN_THROW_SPEED) * (t * t); // quadratic: medium→short, fast→far
-  speed = Math.max(MIN_THROW_SPEED, Math.min(MAX_THROW_SPEED, speed));
+  // Speed based on swipe velocity — quadratic curve for base range,
+  // linear bonus above cap so fast swipes reach back rows
+  const rawSpeed = (dist / dt) * 15;
+  const BASE_MAX = 8.44; // original cap: medium swipes saturate here
+  const t = Math.min(rawSpeed / BASE_MAX, 1); // 0-1 normalized
+  let speed = MIN_THROW_SPEED + (BASE_MAX - MIN_THROW_SPEED) * (t * t);
+  // Bonus: fast swipes beyond the base cap get extra reach
+  const excess = Math.max(0, rawSpeed - BASE_MAX);
+  speed = Math.min(speed + excess * 0.05, MAX_THROW_SPEED);
 
   // Normalize direction
   const ndx = dx / dist;
